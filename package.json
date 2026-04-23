@@ -1,0 +1,25 @@
+{
+  "name": "agentscope",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "bin": {
+    "agentscope": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "cac": "^6.7.14"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "execa": "^9.1.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2"
+  }
+}
