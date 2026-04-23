@@ -1,0 +1,185 @@
+import { formatSearchResultsHuman } from '../core/output/human.js';
+import { formatSearchResultsJson } from '../core/output/json.js';
+import { searchClaudeSessions } from '../runtimes/claude/search.js';
+import { isClaudeFixtureMode, resolveClaudeFixturesRoot } from '../runtimes/claude/detect.js';
+import { searchCodexSessions } from '../runtimes/codex/search.js';
+import { resolveCodexFixturesRoot } from '../runtimes/codex/detect.js';
+import { searchOpenCodeSessions } from '../runtimes/opencode/search.js';
+import type { SearchResultTree } from '../core/types.js';
+import type { AgentscopeWarning } from '../core/warnings.js';
+
+export interface SearchCommandOptions {
+  query?: string;
+  rawArgs?: string[];
+  json?: boolean;
+  regex?: boolean;
+  agent?: string;
+  repo?: string;
+  path?: string;
+  here?: string | boolean;
+  since?: string;
+  until?: string;
+  limit?: number;
+  all?: boolean;
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+}
+
+export interface CommandResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+function commandError(message: string, exitCode = 1): CommandResult {
+  return {
+    exitCode,
+    stdout: '',
+    stderr: message,
+  };
+}
+
+function jsonError(code: string, message: string): CommandResult {
+  return {
+    exitCode: 1,
+    stdout: JSON.stringify(
+      {
+        error: {
+          code,
+          message,
+        },
+      },
+      null,
+      2,
+    ),
+    stderr: '',
+  };
+}
+
+function failureInjected(runtime: string, env: NodeJS.ProcessEnv): boolean {
+  return (env.AGENTSCOPE_FAIL_RUNTIME ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .includes(runtime);
+}
+
+export async function runSearchCommand(options: SearchCommandOptions): Promise<CommandResult> {
+  const rawArgs = options.rawArgs ?? [];
+  if (!options.query || rawArgs.length !== 1) {
+    return commandError('Expected exactly one query');
+  }
+
+  if (options.agent && options.agent !== 'claude' && options.agent !== 'codex' && options.agent !== 'opencode') {
+    return options.json
+      ? jsonError('runtime_unavailable', `Unsupported agent in current build: ${options.agent}`)
+      : commandError(`Unsupported agent in current build: ${options.agent}`);
+  }
+
+  const env = options.env ?? process.env;
+  if (!isClaudeFixtureMode(env)) {
+    return commandError('Claude search currently requires fixture mode');
+  }
+
+  try {
+    const targetRuntimes = options.agent ? [options.agent] : ['claude', 'codex', 'opencode'];
+    const warnings: AgentscopeWarning[] = [];
+    const combinedResults: SearchResultTree[] = [];
+
+    for (const runtime of targetRuntimes) {
+      if (runtime !== 'claude' && runtime !== 'codex' && runtime !== 'opencode') {
+        return options.json
+          ? jsonError('runtime_unavailable', `Unsupported agent in current build: ${runtime}`)
+          : commandError(`Unsupported agent in current build: ${runtime}`);
+      }
+
+      if (failureInjected(runtime, env)) {
+        warnings.push({
+          code: 'runtime_unavailable',
+          runtime,
+          message: `${runtime} runtime unavailable`,
+          severity: 'warning',
+        });
+        continue;
+      }
+
+      if (runtime === 'claude') {
+        const results = await searchClaudeSessions({
+          query: options.query,
+          fixturesRoot: resolveClaudeFixturesRoot(env),
+          regex: options.regex,
+          repo: options.repo,
+          path: options.path,
+          here:
+            options.here === true
+              ? options.cwd ?? process.cwd()
+              : typeof options.here === 'string'
+                ? options.here
+                : undefined,
+          since: options.since,
+          until: options.until,
+        });
+        combinedResults.push(...results.results);
+        continue;
+      }
+
+      if (runtime === 'codex') {
+        const codexResults = await searchCodexSessions({
+          query: options.query,
+          fixturesRoot: resolveCodexFixturesRoot(env),
+        });
+        combinedResults.push(...codexResults.results);
+        continue;
+      }
+
+      const opencodeResults = await searchOpenCodeSessions({
+        query: options.query,
+        fixtureDb: env.AGENTSCOPE_OPENCODE_DB ?? 'fixtures/opencode/opencode.db',
+      });
+      combinedResults.push(...opencodeResults.results);
+    }
+
+    combinedResults.sort((left, right) => left.runtime.localeCompare(right.runtime));
+
+    if (combinedResults.length === 0) {
+      const hasRuntimeFailure = warnings.some((warning) => warning.code === 'runtime_unavailable');
+      if (hasRuntimeFailure) {
+        return options.json
+          ? jsonError('runtime_unavailable', 'All targeted runtimes failed')
+          : commandError('All targeted runtimes failed');
+      }
+
+      return options.json ? jsonError('no_matches', 'No matches found') : commandError('No matches found');
+    }
+
+    const requestedLimit = options.all ? combinedResults.length : options.limit ?? 20;
+    const truncated = !options.all && combinedResults.length > requestedLimit;
+    const limitedResults = truncated ? combinedResults.slice(0, requestedLimit) : combinedResults;
+
+    if (truncated) {
+      warnings.push({
+        code: 'search_results_truncated',
+        message: `Search results truncated to ${requestedLimit} root results`,
+        severity: 'warning',
+      });
+    }
+
+    const envelope = {
+      query: options.query,
+      limit: requestedLimit,
+      truncated,
+      results: limitedResults,
+      warnings,
+    };
+
+    return {
+      exitCode: 0,
+      stdout: options.json
+        ? JSON.stringify(formatSearchResultsJson(envelope), null, 2)
+        : formatSearchResultsHuman(envelope),
+      stderr: '',
+    };
+  } catch (error) {
+    return commandError(error instanceof Error ? error.message : 'search failed');
+  }
+}

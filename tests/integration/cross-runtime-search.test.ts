@@ -1,0 +1,65 @@
+import { describe, expect, it } from 'vitest';
+import { execa } from 'execa';
+
+const fixtureEnv = {
+  AGENTSCOPE_FIXTURES_MODE: '1',
+  AGENTSCOPE_FIXTURES_ROOT: 'fixtures/claude/sample-project',
+  AGENTSCOPE_CODEX_FIXTURES_ROOT: 'fixtures/codex',
+};
+
+describe('cross-runtime search', () => {
+  it('returns grouped root results across Claude and Codex', async () => {
+    const result = await execa('node', ['dist/cli.js', 'search', 'proxy', '--json'], {
+      reject: false,
+      env: fixtureEnv,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.results.map((item: { runtime: string }) => item.runtime)).toEqual(
+      expect.arrayContaining(['claude', 'codex']),
+    );
+  });
+
+  it('signals truncation explicitly in JSON output', async () => {
+    const result = await execa('node', ['dist/cli.js', 'search', 'proxy', '--json', '--limit', '1'], {
+      reject: false,
+      env: fixtureEnv,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.truncated).toBe(true);
+    expect(parsed.results).toHaveLength(1);
+    expect(parsed.warnings.some((warning: { code: string }) => warning.code === 'search_results_truncated')).toBe(true);
+  });
+
+  it('preserves available results when one runtime is forced to fail', async () => {
+    const result = await execa('node', ['dist/cli.js', 'search', 'proxy', '--json'], {
+      reject: false,
+      env: {
+        ...fixtureEnv,
+        AGENTSCOPE_FAIL_RUNTIME: 'codex',
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.results.some((item: { runtime: string }) => item.runtime === 'claude')).toBe(true);
+    expect(parsed.warnings.some((warning: { code: string; runtime?: string }) => warning.code === 'runtime_unavailable' && warning.runtime === 'codex')).toBe(true);
+  });
+
+  it('fails non-zero when the targeted runtime totally fails', async () => {
+    const result = await execa('node', ['dist/cli.js', 'search', '019dab', '--agent', 'codex', '--json'], {
+      reject: false,
+      env: {
+        ...fixtureEnv,
+        AGENTSCOPE_FAIL_RUNTIME: 'codex',
+      },
+    });
+
+    expect(result.exitCode).toBe(1);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.error.code).toBe('runtime_unavailable');
+  });
+});
