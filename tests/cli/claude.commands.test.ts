@@ -193,7 +193,7 @@ describe('Claude live-mode CLI commands', () => {
     const projectsDir = await createLiveClaudeProjectsRoot();
     const result = await execa('node', ['dist/cli.js', 'search', 'not-present-in-live-store', '--json'], {
       reject: false,
-      env: { AGENTSCOPE_CLAUDE_PROJECTS_DIR: projectsDir },
+      env: { AGENTSCOPE_CLAUDE_PROJECTS_DIR: projectsDir, AGENTSCOPE_FAIL_RUNTIME: 'opencode' },
     });
 
     expect(result.exitCode).toBe(1);

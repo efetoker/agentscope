@@ -1,7 +1,15 @@
 import { access, constants } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import type { RuntimeDoctorReport, RuntimeDoctorStore } from '../../core/runtime/detect.js';
 import type { OpenCodeRuntimePaths } from './types.js';
+
+export const OPENCODE_DB_ENV = 'AGENTSCOPE_OPENCODE_DB';
+
+export function resolveOpenCodeLiveDb(env: NodeJS.ProcessEnv = process.env): string {
+  return env[OPENCODE_DB_ENV] ?? path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db');
+}
 
 async function probe(targetPath?: string): Promise<RuntimeDoctorStore['status']> {
   if (!targetPath) {

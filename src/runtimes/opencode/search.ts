@@ -1,6 +1,6 @@
 import type { SearchMatch, SearchResultTree } from '../../core/types.js';
-import type { OpenCodeSearchInput, OpenCodeSearchResult, OpenCodeSessionRecord } from './types.js';
-import { loadOpenCodeSessions } from './tree.js';
+import type { OpenCodeMessagePart, OpenCodeSearchInput, OpenCodeSearchResult, OpenCodeSessionRecord } from './types.js';
+import { loadOpenCodeSessionsWithWarnings } from './tree.js';
 
 function normalize(value: string): string {
   return value.toLowerCase();
@@ -39,11 +39,39 @@ function collectMatches(record: OpenCodeSessionRecord, query: string): SearchMat
     }
   }
 
+  for (const message of record.messages) {
+    for (const metadataValue of [
+      message.role,
+      message.agent,
+      message.providerID,
+      message.modelID,
+      message.path,
+      message.time,
+    ]) {
+      if (metadataValue && normalize(metadataValue).includes(normalizedQuery)) {
+        pushMatch(matches, record.sessionId, 'metadata', metadataValue);
+      }
+    }
+
+    for (const part of message.parts) {
+      const searchable = part.text ?? JSON.stringify(part.data ?? {});
+      if (!normalize(searchable).includes(normalizedQuery)) {
+        continue;
+      }
+
+      pushMatch(matches, record.sessionId, sourceForPart(part), searchable);
+    }
+  }
+
   return matches;
 }
 
+function sourceForPart(part: OpenCodeMessagePart): SearchMatch['source'] {
+  return part.kind === 'tool' ? 'tool_result' : part.kind === 'text' ? 'message_text' : 'metadata';
+}
+
 export async function searchOpenCodeSessions(input: OpenCodeSearchInput): Promise<OpenCodeSearchResult> {
-  const sessions = loadOpenCodeSessions(input.fixtureDb);
+  const { sessions, warnings } = loadOpenCodeSessionsWithWarnings(input);
   const grouped = new Map<string, SearchResultTree>();
 
   for (const session of sessions) {
@@ -64,5 +92,6 @@ export async function searchOpenCodeSessions(input: OpenCodeSearchInput): Promis
 
   return {
     results: Array.from(grouped.values()),
+    warnings,
   };
 }

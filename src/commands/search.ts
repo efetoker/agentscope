@@ -5,6 +5,7 @@ import { isClaudeFixtureMode, resolveClaudeFixturesRoot, resolveClaudeProjectsRo
 import { searchCodexSessions } from '../runtimes/codex/search.js';
 import { resolveCodexFixturesRoot } from '../runtimes/codex/detect.js';
 import { searchOpenCodeSessions } from '../runtimes/opencode/search.js';
+import { resolveOpenCodeLiveDb } from '../runtimes/opencode/detect.js';
 import type { SearchResultTree } from '../core/types.js';
 import type { AgentscopeWarning } from '../core/warnings.js';
 import { detectAllRuntimes } from '../core/runtime/detect.js';
@@ -120,12 +121,12 @@ export async function runSearchCommand(options: SearchCommandOptions): Promise<C
           continue;
         }
 
-        if (!fixtureMode) {
-          warnings.push(runtimeUnavailableWarning(runtime));
-          continue;
-        }
-
         if (runtime === 'codex') {
+          if (!fixtureMode) {
+            warnings.push(runtimeUnavailableWarning(runtime));
+            continue;
+          }
+
           const codexResults = await searchCodexSessions({
             query: options.query,
             fixturesRoot: resolveCodexFixturesRoot(env),
@@ -136,9 +137,10 @@ export async function runSearchCommand(options: SearchCommandOptions): Promise<C
 
         const opencodeResults = await searchOpenCodeSessions({
           query: options.query,
-          fixtureDb: env.AGENTSCOPE_OPENCODE_DB ?? 'fixtures/opencode/opencode.db',
+          ...(fixtureMode ? { fixtureDb: env.AGENTSCOPE_OPENCODE_DB ?? 'fixtures/opencode/opencode.db' } : { liveDb: resolveOpenCodeLiveDb(env) }),
         });
         combinedResults.push(...opencodeResults.results);
+        warnings.push(...opencodeResults.warnings);
       } catch (error) {
         if (error instanceof Error && /regular expression|regex/i.test(error.message)) {
           throw error;

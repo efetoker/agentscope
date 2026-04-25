@@ -6,7 +6,8 @@ import { resolveCodexFixturesRoot } from '../runtimes/codex/detect.js';
 import { loadClaudeSessions, loadClaudeSessionsWithWarnings } from '../runtimes/claude/tree.js';
 import { loadCodexSessions } from '../runtimes/codex/tree.js';
 import { prepareOpenCodeBundle } from '../runtimes/opencode/export.js';
-import { loadOpenCodeSessions } from '../runtimes/opencode/tree.js';
+import { resolveOpenCodeLiveDb } from '../runtimes/opencode/detect.js';
+import { loadOpenCodeSessions, loadOpenCodeSessionsWithWarnings } from '../runtimes/opencode/tree.js';
 import { detectAllRuntimes } from '../core/runtime/detect.js';
 import type { AgentscopeWarning } from '../core/warnings.js';
 import { allTargetRuntimesUnavailable, isSupportedRuntime, runtimeFailureInjected, runtimeUnavailableWarning } from '../core/runtime/availability.js';
@@ -106,7 +107,11 @@ async function collectCandidates(
       warnings.push(runtimeUnavailableWarning('opencode'));
     } else {
       try {
-        const sessions = loadOpenCodeSessions(env.AGENTSCOPE_OPENCODE_DB ?? 'fixtures/opencode/opencode.db');
+        const loaded = fixtureMode
+          ? { sessions: loadOpenCodeSessions(env.AGENTSCOPE_OPENCODE_DB ?? 'fixtures/opencode/opencode.db'), warnings: [] }
+          : loadOpenCodeSessionsWithWarnings({ liveDb: resolveOpenCodeLiveDb(env) });
+        warnings.push(...loaded.warnings);
+        const sessions = loaded.sessions;
         for (const session of sessions) {
           if (session.sessionId.toLowerCase().includes(id.toLowerCase())) {
             candidates.push({
@@ -166,8 +171,8 @@ export async function runExportCommand(options: ExportCommandOptions): Promise<C
           : options.agent === 'opencode'
             ? ['opencode']
             : ['claude', 'codex', 'opencode'];
-    const liveUnsupported = !fixtureMode ? runtimes.filter((runtime) => runtime !== 'claude') : [];
-    const collectRuntimes = !fixtureMode ? runtimes.filter((runtime) => runtime === 'claude') : runtimes;
+    const liveUnsupported = !fixtureMode ? runtimes.filter((runtime) => runtime === 'codex') : [];
+    const collectRuntimes = !fixtureMode ? runtimes.filter((runtime) => runtime !== 'codex') : runtimes;
     const { candidates, warnings } = await collectCandidates(env, collectRuntimes, options.id, fixtureMode);
     warnings.push(...liveUnsupported.map((runtime) => runtimeUnavailableWarning(runtime)));
     const allRuntimesFailed = allTargetRuntimesUnavailable(warnings, runtimes);
@@ -187,10 +192,10 @@ export async function runExportCommand(options: ExportCommandOptions): Promise<C
               sessionId: selected.sessionId,
               fixturesRoot: resolveCodexFixturesRoot(env),
             })
-          : await prepareOpenCodeBundle({
-              sessionId: selected.sessionId,
-              fixtureDb: env.AGENTSCOPE_OPENCODE_DB ?? 'fixtures/opencode/opencode.db',
-            });
+           : await prepareOpenCodeBundle({
+               sessionId: selected.sessionId,
+               ...(fixtureMode ? { fixtureDb: env.AGENTSCOPE_OPENCODE_DB ?? 'fixtures/opencode/opencode.db' } : { liveDb: resolveOpenCodeLiveDb(env) }),
+             });
     const bundle = await materializeBundleInDirectory(bundleInput, options.out);
 
     return {
