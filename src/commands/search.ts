@@ -3,7 +3,7 @@ import { formatSearchResultsJson } from '../core/output/json.js';
 import { searchClaudeSessions } from '../runtimes/claude/search.js';
 import { isClaudeFixtureMode, resolveClaudeFixturesRoot, resolveClaudeProjectsRoot } from '../runtimes/claude/detect.js';
 import { searchCodexSessions } from '../runtimes/codex/search.js';
-import { resolveCodexFixturesRoot } from '../runtimes/codex/detect.js';
+import { resolveCodexFixturesRoot, resolveCodexHome, resolveCodexSessionIndex, resolveCodexSessionsRoot } from '../runtimes/codex/detect.js';
 import { searchOpenCodeSessions } from '../runtimes/opencode/search.js';
 import { resolveOpenCodeLiveDb } from '../runtimes/opencode/detect.js';
 import type { SearchResultTree } from '../core/types.js';
@@ -122,16 +122,18 @@ export async function runSearchCommand(options: SearchCommandOptions): Promise<C
         }
 
         if (runtime === 'codex') {
-          if (!fixtureMode) {
-            warnings.push(runtimeUnavailableWarning(runtime));
-            continue;
-          }
-
           const codexResults = await searchCodexSessions({
             query: options.query,
-            fixturesRoot: resolveCodexFixturesRoot(env),
+            ...(fixtureMode
+              ? { fixturesRoot: resolveCodexFixturesRoot(env) }
+              : {
+                  liveCodexHome: resolveCodexHome(env),
+                  sessionIndexJsonl: resolveCodexSessionIndex(env),
+                  sessionsRoot: resolveCodexSessionsRoot(env),
+                }),
           });
           combinedResults.push(...codexResults.results);
+          warnings.push(...codexResults.warnings);
           continue;
         }
 

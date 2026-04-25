@@ -2,7 +2,7 @@ import { materializeTempBundle } from '../core/bundle/materialize.js';
 import { prepareClaudeBundle } from '../runtimes/claude/export.js';
 import { isClaudeFixtureMode, resolveClaudeFixturesRoot, resolveClaudeProjectsRoot } from '../runtimes/claude/detect.js';
 import { prepareCodexBundle } from '../runtimes/codex/export.js';
-import { resolveCodexFixturesRoot } from '../runtimes/codex/detect.js';
+import { resolveCodexFixturesRoot, resolveCodexHome, resolveCodexSessionIndex, resolveCodexSessionsRoot } from '../runtimes/codex/detect.js';
 import { loadClaudeSessions, loadClaudeSessionsWithWarnings } from '../runtimes/claude/tree.js';
 import { loadCodexSessions } from '../runtimes/codex/tree.js';
 import { prepareOpenCodeBundle } from '../runtimes/opencode/export.js';
@@ -112,7 +112,15 @@ async function collectCandidates(
       warnings.push(runtimeUnavailableWarning('codex'));
     } else {
       try {
-        const sessions = await loadCodexSessions(resolveCodexFixturesRoot(env));
+        const sessions = await loadCodexSessions(
+          fixtureMode
+            ? { fixturesRoot: resolveCodexFixturesRoot(env) }
+            : {
+                liveCodexHome: resolveCodexHome(env),
+                sessionIndexJsonl: resolveCodexSessionIndex(env),
+                sessionsRoot: resolveCodexSessionsRoot(env),
+              },
+        );
         for (const session of sessions) {
           if (session.sessionId.toLowerCase().includes(id.toLowerCase())) {
             candidates.push({
@@ -206,10 +214,7 @@ export async function runShowCommand(options: ShowCommandOptions): Promise<Comma
           : options.agent === 'opencode'
             ? ['opencode']
             : ['claude', 'codex', 'opencode'];
-    const liveUnsupported = !fixtureMode ? runtimes.filter((runtime) => runtime === 'codex') : [];
-    const collectRuntimes = !fixtureMode ? runtimes.filter((runtime) => runtime !== 'codex') : runtimes;
-    const { candidates, warnings } = await collectCandidates(env, collectRuntimes, options.id, fixtureMode);
-    warnings.push(...liveUnsupported.map((runtime) => runtimeUnavailableWarning(runtime)));
+    const { candidates, warnings } = await collectCandidates(env, runtimes, options.id, fixtureMode);
     let selected: ResolutionCandidate;
     try {
       selected = resolveCandidate(candidates, options.id);
@@ -246,7 +251,13 @@ export async function runShowCommand(options: ShowCommandOptions): Promise<Comma
         : selected.runtime === 'codex'
           ? await prepareCodexBundle({
               sessionId: selected.sessionId,
-              fixturesRoot: resolveCodexFixturesRoot(env),
+              ...(fixtureMode
+                ? { fixturesRoot: resolveCodexFixturesRoot(env) }
+                : {
+                    liveCodexHome: resolveCodexHome(env),
+                    sessionIndexJsonl: resolveCodexSessionIndex(env),
+                    sessionsRoot: resolveCodexSessionsRoot(env),
+                  }),
             })
            : await prepareOpenCodeBundle({
                sessionId: selected.sessionId,

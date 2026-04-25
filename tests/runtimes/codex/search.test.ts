@@ -1,6 +1,44 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import { searchCodexSessions } from '../../../src/runtimes/codex/search.js';
+
+const createdPaths: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(createdPaths.splice(0).map((target) => rm(target, { recursive: true, force: true })));
+});
+
+async function createCodexHome(): Promise<string> {
+  const codexHome = await mkdtemp(path.join(os.tmpdir(), 'agentscope-codex-search-'));
+  createdPaths.push(codexHome);
+  await mkdir(path.join(codexHome, 'sessions'), { recursive: true });
+  await writeFile(
+    path.join(codexHome, 'session_index.jsonl'),
+    `${JSON.stringify({
+      session_id: 'codex-root-1',
+      root_session_id: 'codex-root-1',
+      parent_session_id: null,
+      rollout_path: 'sessions/rollout-root.jsonl',
+      repo_path: '/workspace/project',
+      path_hint: '/workspace/project',
+      timestamp: '2026-04-26T00:00:00.000Z',
+    })}\n`,
+  );
+  await writeFile(
+    path.join(codexHome, 'sessions', 'rollout-root.jsonl'),
+    `${JSON.stringify({
+      type: 'event_msg',
+      session_id: 'codex-root-1',
+      root_session_id: 'codex-root-1',
+      timestamp: '2026-04-26T00:00:01.000Z',
+      message: { role: 'user', content: 'codex live adapter' },
+    })}\n`,
+  );
+  return codexHome;
+}
 
 describe('Codex search adapter', () => {
   it('finds text and session-id matches from rollout fixtures', async () => {
@@ -21,5 +59,18 @@ describe('Codex search adapter', () => {
     });
 
     expect(result.results[0].matches[0].nodeSessionId).toBe('child-019dab');
+  });
+
+  it('finds text matches from live Codex rollout stores', async () => {
+    const codexHome = await createCodexHome();
+
+    const result = await searchCodexSessions({
+      query: 'codex live adapter',
+      liveCodexHome: codexHome,
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(result.results[0].runtime).toBe('codex');
+    expect(result.results[0].rootSessionId).toBe('codex-root-1');
   });
 });
