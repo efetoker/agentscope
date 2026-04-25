@@ -7,7 +7,7 @@ import Database from 'better-sqlite3';
 import { searchOpenCodeSessions } from '../../../src/runtimes/opencode/search.js';
 import { expandOpenCodeTree } from '../../../src/runtimes/opencode/tree.js';
 
-async function createLiveOpenCodeDb(): Promise<{ dbPath: string; cleanup: () => Promise<void> }> {
+async function createLiveOpenCodeDb(options: { malformed?: boolean } = {}): Promise<{ dbPath: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'agentscope-opencode-live-'));
   const dbPath = path.join(dir, 'opencode.db');
   const db = new Database(dbPath);
@@ -75,6 +75,9 @@ async function createLiveOpenCodeDb(): Promise<{ dbPath: string; cleanup: () => 
     'message-1',
     JSON.stringify({ type: 'tool', name: 'migration', input: { command: 'migration preview' } }),
   );
+  if (options.malformed) {
+    db.prepare('INSERT INTO message (id, session_id, data) VALUES (?, ?, ?)').run('message-malformed', 'oc-live-child', '{not-json');
+  }
   db.close();
 
   return {
@@ -131,6 +134,25 @@ describe('OpenCode tree expansion', () => {
           source: 'metadata',
           preview: '2026-04-26T00:00:00.000Z 2026-04-26T00:01:00.000Z',
         }),
+      );
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it('warns and keeps sessions when a live OpenCode JSON payload is malformed', async () => {
+    const fixture = await createLiveOpenCodeDb({ malformed: true });
+    try {
+      const tree = await expandOpenCodeTree({
+        sessionId: 'oc-live-child',
+        liveDb: fixture.dbPath,
+      });
+
+      expect(tree.sessionIds).toEqual(['oc-live-root', 'oc-live-child']);
+      expect(tree.warnings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: 'opencode_json_malformed', runtime: 'opencode', severity: 'warning' }),
+        ]),
       );
     } finally {
       await fixture.cleanup();
