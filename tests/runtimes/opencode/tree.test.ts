@@ -114,7 +114,24 @@ describe('OpenCode tree expansion', () => {
         path: '/workspace/project/subdir /workspace/project',
         time: '2026-04-26T00:00:00.000Z 2026-04-26T00:01:00.000Z',
       });
-      expect(tree.sessions[1].messages[0].parts.length).toBeGreaterThan(0);
+      expect(tree.sessions[1].messages[0].parts).toEqual([
+        expect.objectContaining({
+          id: 'part-1',
+          messageId: 'message-1',
+          kind: 'text',
+          text: 'proxy configuration details',
+        }),
+        expect.objectContaining({
+          id: 'part-2',
+          messageId: 'message-1',
+          kind: 'tool',
+          data: expect.objectContaining({
+            type: 'tool',
+            name: 'migration',
+            input: { command: 'migration preview' },
+          }),
+        }),
+      ]);
     } finally {
       await fixture.cleanup();
     }
