@@ -7,6 +7,7 @@ import { resolveCodexFixturesRoot } from '../runtimes/codex/detect.js';
 import { searchOpenCodeSessions } from '../runtimes/opencode/search.js';
 import type { SearchResultTree } from '../core/types.js';
 import type { AgentscopeWarning } from '../core/warnings.js';
+import { detectAllRuntimes } from '../core/runtime/detect.js';
 
 export interface SearchCommandOptions {
   query?: string;
@@ -56,6 +57,15 @@ function jsonError(code: string, message: string): CommandResult {
   };
 }
 
+async function liveReaderUnavailable(command: 'search', json = false): Promise<CommandResult> {
+  const reports = await detectAllRuntimes();
+  const detected = reports.filter((report) => report.detected).map((report) => report.runtime);
+  const suffix = detected.length > 0 ? ` for detected runtimes: ${detected.join(', ')}` : ' for any detected runtime';
+  const message = `Live ${command} is enabled, but live session readers are not implemented yet${suffix}. Set AGENTSCOPE_FIXTURES_MODE=1 to use synthetic fixtures for development.`;
+
+  return json ? jsonError('live_reader_unimplemented', message) : commandError(message);
+}
+
 function failureInjected(runtime: string, env: NodeJS.ProcessEnv): boolean {
   return (env.AGENTSCOPE_FAIL_RUNTIME ?? '')
     .split(',')
@@ -78,7 +88,7 @@ export async function runSearchCommand(options: SearchCommandOptions): Promise<C
 
   const env = options.env ?? process.env;
   if (!isClaudeFixtureMode(env)) {
-    return commandError('Claude search currently requires fixture mode');
+    return liveReaderUnavailable('search', options.json);
   }
 
   try {

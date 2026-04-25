@@ -7,6 +7,7 @@ import { loadClaudeSessions } from '../runtimes/claude/tree.js';
 import { loadCodexSessions } from '../runtimes/codex/tree.js';
 import { prepareOpenCodeBundle } from '../runtimes/opencode/export.js';
 import { loadOpenCodeSessions } from '../runtimes/opencode/tree.js';
+import { detectAllRuntimes } from '../core/runtime/detect.js';
 
 export interface ExportCommandOptions {
   id?: string;
@@ -28,6 +29,16 @@ function commandError(message: string, exitCode = 1): CommandResult {
     stdout: '',
     stderr: message,
   };
+}
+
+async function liveReaderUnavailable(command: 'export'): Promise<CommandResult> {
+  const reports = await detectAllRuntimes();
+  const detected = reports.filter((report) => report.detected).map((report) => report.runtime);
+  const suffix = detected.length > 0 ? ` for detected runtimes: ${detected.join(', ')}` : ' for any detected runtime';
+
+  return commandError(
+    `Live ${command} is enabled, but live session readers are not implemented yet${suffix}. Set AGENTSCOPE_FIXTURES_MODE=1 to use synthetic fixtures for development.`,
+  );
 }
 
 interface ResolutionCandidate {
@@ -110,7 +121,7 @@ export async function runExportCommand(options: ExportCommandOptions): Promise<C
 
   const env = options.env ?? process.env;
   if (!isClaudeFixtureMode(env)) {
-    return commandError('Claude export currently requires fixture mode');
+    return liveReaderUnavailable('export');
   }
 
   try {

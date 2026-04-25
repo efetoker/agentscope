@@ -7,6 +7,7 @@ import { loadClaudeSessions } from '../runtimes/claude/tree.js';
 import { loadCodexSessions } from '../runtimes/codex/tree.js';
 import { prepareOpenCodeBundle } from '../runtimes/opencode/export.js';
 import { loadOpenCodeSessions } from '../runtimes/opencode/tree.js';
+import { detectAllRuntimes } from '../core/runtime/detect.js';
 
 export interface ShowCommandOptions {
   id?: string;
@@ -55,6 +56,15 @@ function jsonError(code: string, message: string, candidates: ResolutionCandidat
     ),
     stderr: '',
   };
+}
+
+async function liveReaderUnavailable(command: 'show', json = false): Promise<CommandResult> {
+  const reports = await detectAllRuntimes();
+  const detected = reports.filter((report) => report.detected).map((report) => report.runtime);
+  const suffix = detected.length > 0 ? ` for detected runtimes: ${detected.join(', ')}` : ' for any detected runtime';
+  const message = `Live ${command} is enabled, but live session readers are not implemented yet${suffix}. Set AGENTSCOPE_FIXTURES_MODE=1 to use synthetic fixtures for development.`;
+
+  return json ? jsonError('live_reader_unimplemented', message) : commandError(message);
 }
 
 async function collectCandidates(
@@ -144,7 +154,7 @@ export async function runShowCommand(options: ShowCommandOptions): Promise<Comma
 
   const env = options.env ?? process.env;
   if (!isClaudeFixtureMode(env)) {
-    return commandError('Claude show currently requires fixture mode');
+    return liveReaderUnavailable('show', options.json);
   }
 
   try {
