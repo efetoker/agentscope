@@ -8,6 +8,7 @@ import { searchOpenCodeSessions } from '../runtimes/opencode/search.js';
 import type { SearchResultTree } from '../core/types.js';
 import type { AgentscopeWarning } from '../core/warnings.js';
 import { detectAllRuntimes } from '../core/runtime/detect.js';
+import { isSupportedRuntime, runtimeFailureInjected, runtimeUnavailableWarning } from '../core/runtime/availability.js';
 
 export interface SearchCommandOptions {
   query?: string;
@@ -66,14 +67,6 @@ async function liveReaderUnavailable(command: 'search', json = false): Promise<C
   return json ? jsonError('live_reader_unimplemented', message) : commandError(message);
 }
 
-function failureInjected(runtime: string, env: NodeJS.ProcessEnv): boolean {
-  return (env.AGENTSCOPE_FAIL_RUNTIME ?? '')
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean)
-    .includes(runtime);
-}
-
 export async function runSearchCommand(options: SearchCommandOptions): Promise<CommandResult> {
   const rawArgs = options.rawArgs ?? [];
   if (!options.query || rawArgs.length !== 1) {
@@ -97,56 +90,59 @@ export async function runSearchCommand(options: SearchCommandOptions): Promise<C
     const combinedResults: SearchResultTree[] = [];
 
     for (const runtime of targetRuntimes) {
-      if (runtime !== 'claude' && runtime !== 'codex' && runtime !== 'opencode') {
+      if (!isSupportedRuntime(runtime)) {
         return options.json
           ? jsonError('runtime_unavailable', `Unsupported agent in current build: ${runtime}`)
           : commandError(`Unsupported agent in current build: ${runtime}`);
       }
 
-      if (failureInjected(runtime, env)) {
-        warnings.push({
-          code: 'runtime_unavailable',
-          runtime,
-          message: `${runtime} runtime unavailable`,
-          severity: 'warning',
-        });
+      if (runtimeFailureInjected(runtime, env)) {
+        warnings.push(runtimeUnavailableWarning(runtime));
         continue;
       }
 
-      if (runtime === 'claude') {
-        const results = await searchClaudeSessions({
+      try {
+        if (runtime === 'claude') {
+          const results = await searchClaudeSessions({
+            query: options.query,
+            fixturesRoot: resolveClaudeFixturesRoot(env),
+            regex: options.regex,
+            repo: options.repo,
+            path: options.path,
+            here:
+              options.here === true
+                ? options.cwd ?? process.cwd()
+                : typeof options.here === 'string'
+                  ? options.here
+                  : undefined,
+            since: options.since,
+            until: options.until,
+          });
+          combinedResults.push(...results.results);
+          continue;
+        }
+
+        if (runtime === 'codex') {
+          const codexResults = await searchCodexSessions({
+            query: options.query,
+            fixturesRoot: resolveCodexFixturesRoot(env),
+          });
+          combinedResults.push(...codexResults.results);
+          continue;
+        }
+
+        const opencodeResults = await searchOpenCodeSessions({
           query: options.query,
-          fixturesRoot: resolveClaudeFixturesRoot(env),
-          regex: options.regex,
-          repo: options.repo,
-          path: options.path,
-          here:
-            options.here === true
-              ? options.cwd ?? process.cwd()
-              : typeof options.here === 'string'
-                ? options.here
-                : undefined,
-          since: options.since,
-          until: options.until,
+          fixtureDb: env.AGENTSCOPE_OPENCODE_DB ?? 'fixtures/opencode/opencode.db',
         });
-        combinedResults.push(...results.results);
-        continue;
-      }
+        combinedResults.push(...opencodeResults.results);
+      } catch (error) {
+        if (error instanceof Error && /regular expression|regex/i.test(error.message)) {
+          throw error;
+        }
 
-      if (runtime === 'codex') {
-        const codexResults = await searchCodexSessions({
-          query: options.query,
-          fixturesRoot: resolveCodexFixturesRoot(env),
-        });
-        combinedResults.push(...codexResults.results);
-        continue;
+        warnings.push(runtimeUnavailableWarning(runtime));
       }
-
-      const opencodeResults = await searchOpenCodeSessions({
-        query: options.query,
-        fixtureDb: env.AGENTSCOPE_OPENCODE_DB ?? 'fixtures/opencode/opencode.db',
-      });
-      combinedResults.push(...opencodeResults.results);
     }
 
     combinedResults.sort((left, right) => left.runtime.localeCompare(right.runtime));

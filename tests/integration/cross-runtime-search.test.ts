@@ -46,7 +46,34 @@ describe('cross-runtime search', () => {
     expect(result.exitCode).toBe(0);
     const parsed = JSON.parse(result.stdout);
     expect(parsed.results.some((item: { runtime: string }) => item.runtime === 'claude')).toBe(true);
+    expect(parsed.results.every((item: { runtime: string }) => item.runtime !== 'codex')).toBe(true);
     expect(parsed.warnings.some((warning: { code: string; runtime?: string }) => warning.code === 'runtime_unavailable' && warning.runtime === 'codex')).toBe(true);
+    expect(JSON.stringify(parsed)).not.toContain('/Users/');
+  });
+
+  it('preserves available search results when a runtime store is missing', async () => {
+    const result = await execa('node', ['dist/cli.js', 'search', 'proxy', '--json'], {
+      reject: false,
+      env: {
+        ...fixtureEnv,
+        AGENTSCOPE_OPENCODE_DB: 'fixtures/opencode/missing-opencode.db',
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.results.some((item: { runtime: string }) => item.runtime === 'claude')).toBe(true);
+    expect(parsed.results.some((item: { runtime: string }) => item.runtime === 'codex')).toBe(true);
+    expect(parsed.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'runtime_unavailable',
+          runtime: 'opencode',
+          severity: 'warning',
+        }),
+      ]),
+    );
+    expect(JSON.stringify(parsed)).not.toContain('/Users/');
   });
 
   it('fails non-zero when the targeted runtime totally fails', async () => {

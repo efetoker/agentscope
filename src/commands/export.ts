@@ -8,6 +8,8 @@ import { loadCodexSessions } from '../runtimes/codex/tree.js';
 import { prepareOpenCodeBundle } from '../runtimes/opencode/export.js';
 import { loadOpenCodeSessions } from '../runtimes/opencode/tree.js';
 import { detectAllRuntimes } from '../core/runtime/detect.js';
+import type { AgentscopeWarning } from '../core/warnings.js';
+import { isSupportedRuntime, runtimeFailureInjected, runtimeUnavailableWarning } from '../core/runtime/availability.js';
 
 export interface ExportCommandOptions {
   id?: string;
@@ -50,46 +52,71 @@ async function collectCandidates(
   env: NodeJS.ProcessEnv,
   runtimes: Array<'claude' | 'codex' | 'opencode'>,
   id: string,
-): Promise<ResolutionCandidate[]> {
+): Promise<{ candidates: ResolutionCandidate[]; warnings: AgentscopeWarning[] }> {
   const candidates: ResolutionCandidate[] = [];
+  const warnings: AgentscopeWarning[] = [];
 
   if (runtimes.includes('claude')) {
-    const sessions = await loadClaudeSessions(resolveClaudeFixturesRoot(env));
-    for (const session of sessions) {
-      if (session.sessionId.toLowerCase().includes(id.toLowerCase())) {
-        candidates.push({
-          runtime: 'claude',
-          sessionId: session.sessionId,
-        });
+    if (runtimeFailureInjected('claude', env)) {
+      warnings.push(runtimeUnavailableWarning('claude'));
+    } else {
+      try {
+        const sessions = await loadClaudeSessions(resolveClaudeFixturesRoot(env));
+        for (const session of sessions) {
+          if (session.sessionId.toLowerCase().includes(id.toLowerCase())) {
+            candidates.push({
+              runtime: 'claude',
+              sessionId: session.sessionId,
+            });
+          }
+        }
+      } catch {
+        warnings.push(runtimeUnavailableWarning('claude'));
       }
     }
   }
 
   if (runtimes.includes('codex')) {
-    const sessions = await loadCodexSessions(resolveCodexFixturesRoot(env));
-    for (const session of sessions) {
-      if (session.sessionId.toLowerCase().includes(id.toLowerCase())) {
-        candidates.push({
-          runtime: 'codex',
-          sessionId: session.sessionId,
-        });
+    if (runtimeFailureInjected('codex', env)) {
+      warnings.push(runtimeUnavailableWarning('codex'));
+    } else {
+      try {
+        const sessions = await loadCodexSessions(resolveCodexFixturesRoot(env));
+        for (const session of sessions) {
+          if (session.sessionId.toLowerCase().includes(id.toLowerCase())) {
+            candidates.push({
+              runtime: 'codex',
+              sessionId: session.sessionId,
+            });
+          }
+        }
+      } catch {
+        warnings.push(runtimeUnavailableWarning('codex'));
       }
     }
   }
 
   if (runtimes.includes('opencode')) {
-    const sessions = loadOpenCodeSessions(env.AGENTSCOPE_OPENCODE_DB ?? 'fixtures/opencode/opencode.db');
-    for (const session of sessions) {
-      if (session.sessionId.toLowerCase().includes(id.toLowerCase())) {
-        candidates.push({
-          runtime: 'opencode',
-          sessionId: session.sessionId,
-        });
+    if (runtimeFailureInjected('opencode', env)) {
+      warnings.push(runtimeUnavailableWarning('opencode'));
+    } else {
+      try {
+        const sessions = loadOpenCodeSessions(env.AGENTSCOPE_OPENCODE_DB ?? 'fixtures/opencode/opencode.db');
+        for (const session of sessions) {
+          if (session.sessionId.toLowerCase().includes(id.toLowerCase())) {
+            candidates.push({
+              runtime: 'opencode',
+              sessionId: session.sessionId,
+            });
+          }
+        }
+      } catch {
+        warnings.push(runtimeUnavailableWarning('opencode'));
       }
     }
   }
 
-  return candidates;
+  return { candidates, warnings };
 }
 
 function resolveCandidate(candidates: ResolutionCandidate[], requestedId: string): ResolutionCandidate {
@@ -124,6 +151,10 @@ export async function runExportCommand(options: ExportCommandOptions): Promise<C
     return liveReaderUnavailable('export');
   }
 
+  if (options.agent && !isSupportedRuntime(options.agent)) {
+    return commandError(`Unsupported agent in current build: ${options.agent}`);
+  }
+
   try {
     const runtimes: Array<'claude' | 'codex' | 'opencode'> =
       options.agent === 'codex'
@@ -133,7 +164,13 @@ export async function runExportCommand(options: ExportCommandOptions): Promise<C
           : options.agent === 'opencode'
             ? ['opencode']
             : ['claude', 'codex', 'opencode'];
-    const selected = resolveCandidate(await collectCandidates(env, runtimes, options.id), options.id);
+    const { candidates, warnings } = await collectCandidates(env, runtimes, options.id);
+    const allRuntimesFailed = warnings.some((warning) => warning.code === 'runtime_unavailable') && warnings.length === runtimes.length;
+    if (allRuntimesFailed) {
+      return commandError('All targeted runtimes failed');
+    }
+
+    const selected = resolveCandidate(candidates, options.id);
     const bundleInput =
       selected.runtime === 'claude'
         ? await prepareClaudeBundle({
