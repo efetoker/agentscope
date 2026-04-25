@@ -1,15 +1,15 @@
 import { materializeBundleInDirectory } from '../core/bundle/materialize.js';
 import { prepareClaudeBundle } from '../runtimes/claude/export.js';
-import { isClaudeFixtureMode, resolveClaudeFixturesRoot } from '../runtimes/claude/detect.js';
+import { isClaudeFixtureMode, resolveClaudeFixturesRoot, resolveClaudeProjectsRoot } from '../runtimes/claude/detect.js';
 import { prepareCodexBundle } from '../runtimes/codex/export.js';
 import { resolveCodexFixturesRoot } from '../runtimes/codex/detect.js';
-import { loadClaudeSessions } from '../runtimes/claude/tree.js';
+import { loadClaudeSessions, loadClaudeSessionsWithWarnings } from '../runtimes/claude/tree.js';
 import { loadCodexSessions } from '../runtimes/codex/tree.js';
 import { prepareOpenCodeBundle } from '../runtimes/opencode/export.js';
 import { loadOpenCodeSessions } from '../runtimes/opencode/tree.js';
 import { detectAllRuntimes } from '../core/runtime/detect.js';
 import type { AgentscopeWarning } from '../core/warnings.js';
-import { isSupportedRuntime, runtimeFailureInjected, runtimeUnavailableWarning } from '../core/runtime/availability.js';
+import { allTargetRuntimesUnavailable, isSupportedRuntime, runtimeFailureInjected, runtimeUnavailableWarning } from '../core/runtime/availability.js';
 
 export interface ExportCommandOptions {
   id?: string;
@@ -52,6 +52,7 @@ async function collectCandidates(
   env: NodeJS.ProcessEnv,
   runtimes: Array<'claude' | 'codex' | 'opencode'>,
   id: string,
+  fixtureMode = true,
 ): Promise<{ candidates: ResolutionCandidate[]; warnings: AgentscopeWarning[] }> {
   const candidates: ResolutionCandidate[] = [];
   const warnings: AgentscopeWarning[] = [];
@@ -61,7 +62,11 @@ async function collectCandidates(
       warnings.push(runtimeUnavailableWarning('claude'));
     } else {
       try {
-        const sessions = await loadClaudeSessions(resolveClaudeFixturesRoot(env));
+        const loaded = fixtureMode
+          ? { sessions: await loadClaudeSessions(resolveClaudeFixturesRoot(env)), warnings: [] }
+          : await loadClaudeSessionsWithWarnings({ liveProjectsRoot: resolveClaudeProjectsRoot(env) });
+        warnings.push(...loaded.warnings);
+        const sessions = loaded.sessions;
         for (const session of sessions) {
           if (session.sessionId.toLowerCase().includes(id.toLowerCase())) {
             candidates.push({
@@ -147,10 +152,7 @@ export async function runExportCommand(options: ExportCommandOptions): Promise<C
   }
 
   const env = options.env ?? process.env;
-  if (!isClaudeFixtureMode(env)) {
-    return liveReaderUnavailable('export');
-  }
-
+  const fixtureMode = isClaudeFixtureMode(env);
   if (options.agent && !isSupportedRuntime(options.agent)) {
     return commandError(`Unsupported agent in current build: ${options.agent}`);
   }
@@ -164,8 +166,11 @@ export async function runExportCommand(options: ExportCommandOptions): Promise<C
           : options.agent === 'opencode'
             ? ['opencode']
             : ['claude', 'codex', 'opencode'];
-    const { candidates, warnings } = await collectCandidates(env, runtimes, options.id);
-    const allRuntimesFailed = warnings.some((warning) => warning.code === 'runtime_unavailable') && warnings.length === runtimes.length;
+    const liveUnsupported = !fixtureMode ? runtimes.filter((runtime) => runtime !== 'claude') : [];
+    const collectRuntimes = !fixtureMode ? runtimes.filter((runtime) => runtime === 'claude') : runtimes;
+    const { candidates, warnings } = await collectCandidates(env, collectRuntimes, options.id, fixtureMode);
+    warnings.push(...liveUnsupported.map((runtime) => runtimeUnavailableWarning(runtime)));
+    const allRuntimesFailed = allTargetRuntimesUnavailable(warnings, runtimes);
     if (allRuntimesFailed) {
       return commandError('All targeted runtimes failed');
     }
@@ -175,7 +180,7 @@ export async function runExportCommand(options: ExportCommandOptions): Promise<C
       selected.runtime === 'claude'
         ? await prepareClaudeBundle({
             sessionId: selected.sessionId,
-            fixturesRoot: resolveClaudeFixturesRoot(env),
+            ...(fixtureMode ? { fixturesRoot: resolveClaudeFixturesRoot(env) } : { liveProjectsRoot: resolveClaudeProjectsRoot(env) }),
           })
         : selected.runtime === 'codex'
           ? await prepareCodexBundle({

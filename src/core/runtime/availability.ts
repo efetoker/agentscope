@@ -21,3 +21,13 @@ export function runtimeUnavailableWarning(runtime: RuntimeId): AgentscopeWarning
     severity: 'warning',
   };
 }
+
+export function allTargetRuntimesUnavailable(warnings: AgentscopeWarning[], runtimes: readonly string[]): boolean {
+  const failedRuntimes = new Set(
+    warnings
+      .filter((warning) => warning.code === 'runtime_unavailable' && typeof warning.runtime === 'string')
+      .map((warning) => warning.runtime),
+  );
+
+  return runtimes.length > 0 && runtimes.every((runtime) => failedRuntimes.has(runtime));
+}

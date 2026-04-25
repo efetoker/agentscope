@@ -1,14 +1,14 @@
 import { formatSearchResultsHuman } from '../core/output/human.js';
 import { formatSearchResultsJson } from '../core/output/json.js';
 import { searchClaudeSessions } from '../runtimes/claude/search.js';
-import { isClaudeFixtureMode, resolveClaudeFixturesRoot } from '../runtimes/claude/detect.js';
+import { isClaudeFixtureMode, resolveClaudeFixturesRoot, resolveClaudeProjectsRoot } from '../runtimes/claude/detect.js';
 import { searchCodexSessions } from '../runtimes/codex/search.js';
 import { resolveCodexFixturesRoot } from '../runtimes/codex/detect.js';
 import { searchOpenCodeSessions } from '../runtimes/opencode/search.js';
 import type { SearchResultTree } from '../core/types.js';
 import type { AgentscopeWarning } from '../core/warnings.js';
 import { detectAllRuntimes } from '../core/runtime/detect.js';
-import { isSupportedRuntime, runtimeFailureInjected, runtimeUnavailableWarning } from '../core/runtime/availability.js';
+import { allTargetRuntimesUnavailable, isSupportedRuntime, runtimeFailureInjected, runtimeUnavailableWarning } from '../core/runtime/availability.js';
 
 export interface SearchCommandOptions {
   query?: string;
@@ -80,14 +80,11 @@ export async function runSearchCommand(options: SearchCommandOptions): Promise<C
   }
 
   const env = options.env ?? process.env;
-  if (!isClaudeFixtureMode(env)) {
-    return liveReaderUnavailable('search', options.json);
-  }
-
   try {
     const targetRuntimes = options.agent ? [options.agent] : ['claude', 'codex', 'opencode'];
     const warnings: AgentscopeWarning[] = [];
     const combinedResults: SearchResultTree[] = [];
+    const fixtureMode = isClaudeFixtureMode(env);
 
     for (const runtime of targetRuntimes) {
       if (!isSupportedRuntime(runtime)) {
@@ -105,7 +102,7 @@ export async function runSearchCommand(options: SearchCommandOptions): Promise<C
         if (runtime === 'claude') {
           const results = await searchClaudeSessions({
             query: options.query,
-            fixturesRoot: resolveClaudeFixturesRoot(env),
+            ...(fixtureMode ? { fixturesRoot: resolveClaudeFixturesRoot(env) } : { liveProjectsRoot: resolveClaudeProjectsRoot(env) }),
             regex: options.regex,
             repo: options.repo,
             path: options.path,
@@ -119,6 +116,12 @@ export async function runSearchCommand(options: SearchCommandOptions): Promise<C
             until: options.until,
           });
           combinedResults.push(...results.results);
+          warnings.push(...results.warnings);
+          continue;
+        }
+
+        if (!fixtureMode) {
+          warnings.push(runtimeUnavailableWarning(runtime));
           continue;
         }
 
@@ -148,8 +151,7 @@ export async function runSearchCommand(options: SearchCommandOptions): Promise<C
     combinedResults.sort((left, right) => left.runtime.localeCompare(right.runtime));
 
     if (combinedResults.length === 0) {
-      const hasRuntimeFailure = warnings.some((warning) => warning.code === 'runtime_unavailable');
-      if (hasRuntimeFailure) {
+      if (allTargetRuntimesUnavailable(warnings, targetRuntimes)) {
         return options.json
           ? jsonError('runtime_unavailable', 'All targeted runtimes failed')
           : commandError('All targeted runtimes failed');
