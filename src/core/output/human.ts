@@ -1,5 +1,6 @@
 import type { RuntimeDoctorReport } from '../runtime/detect.js';
 import type { SearchMatch, SearchMatchSource, SearchResultsEnvelope } from '../types.js';
+import { redactPreview } from '../privacy/redact.js';
 import { formatWarningHuman } from '../warnings.js';
 
 const MAX_VISIBLE_MATCHES = 5;
@@ -9,7 +10,7 @@ function canShowPreview(source: SearchMatchSource): boolean {
 }
 
 function sanitizePreview(preview: string): string {
-  return preview.split(/\r?\n/, 1)[0]?.trim() ?? '';
+  return redactPreview(preview.split(/\r?\n/, 1)[0]?.trim() ?? '');
 }
 
 function formatMatchHuman(match: SearchMatch): string {

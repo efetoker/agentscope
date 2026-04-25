@@ -1,5 +1,6 @@
 import type { RuntimeDoctorReport } from '../runtime/detect.js';
 import type { SearchMatchSource, SearchResultsEnvelope } from '../types.js';
+import { redactPreview } from '../privacy/redact.js';
 
 function canShowPreview(source: SearchMatchSource): boolean {
   return source === 'message_text' || source === 'error';
@@ -17,7 +18,7 @@ export function formatSearchResultsJson(input: SearchResultsEnvelope) {
       matches: result.matches.map((match) => ({
         nodeSessionId: match.nodeSessionId,
         source: match.source,
-        ...(canShowPreview(match.source) && match.preview ? { preview: match.preview } : {}),
+        ...(canShowPreview(match.source) && match.preview ? { preview: redactPreview(match.preview) } : {}),
       })),
     })),
     warnings: input.warnings.map((warning) => ({

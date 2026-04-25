@@ -17,7 +17,7 @@ export function runtimeUnavailableWarning(runtime: RuntimeId): AgentscopeWarning
   return {
     code: 'runtime_unavailable',
     runtime,
-    message: `${runtime} runtime unavailable`,
+    message: 'Runtime unavailable',
     severity: 'warning',
   };
 }

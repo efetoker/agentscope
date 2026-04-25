@@ -13,7 +13,7 @@ describe('human output contract', () => {
           runtime: 'claude',
           rootSessionId: 'root-1',
           matches: [
-            { nodeSessionId: 'root-1', source: 'message_text', preview: 'proxy config\nline two' },
+            { nodeSessionId: 'root-1', source: 'message_text', preview: 'user@example.com proxy config\nline two' },
             { nodeSessionId: 'child-1', source: 'message_text', preview: 'proxy retry' },
             { nodeSessionId: 'child-2', source: 'error', preview: 'proxy failed' },
             { nodeSessionId: 'child-3', source: 'metadata', preview: 'metadata preview should hide' },
@@ -27,8 +27,10 @@ describe('human output contract', () => {
     });
 
     expect(output).toContain('+ 2 more matches in this tree');
+    expect(output).toContain('[redacted-email] proxy config');
     expect(output).not.toContain('tool_result payload body');
     expect(output).not.toContain('metadata preview should hide');
+    expect(output).not.toContain('user@example.com');
     expect(output).not.toContain('line two');
   });
 });
