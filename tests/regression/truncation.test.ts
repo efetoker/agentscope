@@ -16,8 +16,7 @@ describe('truncation regression', () => {
     });
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('search_results_truncated');
     expect(result.stdout).toContain('Truncated to 1 root results');
-    expect(result.stderr).toBe('');
+    expect(result.stderr).toContain('search_results_truncated');
   });
 });

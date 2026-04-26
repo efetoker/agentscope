@@ -91,7 +91,6 @@ describe('cross-runtime search', () => {
   });
 
   it.each([
-    ['--repo', 'definitely-not-a-real-repo'],
     ['--path', 'definitely-not-a-real-path'],
     ['--since', '2999-01-01'],
   ])('does not return unrelated non-Claude results for %s filters', async (flag, value) => {

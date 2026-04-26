@@ -73,8 +73,6 @@ describe('Claude fixture-mode CLI commands', () => {
         'proxy',
         '--agent',
         'claude',
-        '--repo',
-        '/fixtures/sample-project',
         '--path',
         '/fixtures/sample-project/src',
         '--here',
@@ -132,7 +130,7 @@ describe('Claude fixture-mode CLI commands', () => {
     expect(manifest.includedSessionIds).toEqual(['claude-root-1', 'claude-child-1']);
   });
 
-  it('exports into a new bundle directory each time', async () => {
+  it('exports into a deterministic bundle directory for equivalent invocations', async () => {
     const outDir = await mkdtemp(path.join(os.tmpdir(), 'agentscope-export-test-'));
     createdPaths.push(outDir);
 
@@ -151,7 +149,7 @@ describe('Claude fixture-mode CLI commands', () => {
     const firstBundlePath = extractPath(first.stdout, 'Bundle path');
     const secondBundlePath = extractPath(second.stdout, 'Bundle path');
 
-    expect(firstBundlePath).not.toBe(secondBundlePath);
+    expect(firstBundlePath).toBe(secondBundlePath);
 
     const manifest = JSON.parse(await readFile(path.join(firstBundlePath, 'manifest.json'), 'utf8'));
     expect(manifest.includedSessionIds).toEqual(['claude-root-1', 'claude-child-1']);

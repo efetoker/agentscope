@@ -64,6 +64,9 @@ describe('contract baseline harness', () => {
       'resolved_root_session_id',
       'resolution',
       'session_count',
+      'project_path',
+      'started_at',
+      'session_ids',
       'bundle_path',
       'manifest_path',
       'warnings',
@@ -74,6 +77,9 @@ describe('contract baseline harness', () => {
       resolved_root_session_id: '019dab34-c95a-7bf1-a0f7-817dd7bed87d',
       resolution: 'partial',
       session_count: 2,
+      project_path: expect.any(String),
+      started_at: expect.any(String),
+      session_ids: expect.arrayContaining(['child-019dab']),
       warnings: [],
     });
 
