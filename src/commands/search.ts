@@ -59,7 +59,20 @@ function jsonError(code: string, message: string): CommandResult {
 }
 
 function isValidDateFilter(value: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isNaN(Date.parse(value));
+  if (!/^\d{4}-\d{2}-\d{2}(?:$|T)/.test(value)) {
+    return !Number.isNaN(Date.parse(value));
+  }
+
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) {
+    return false;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return new Date(parsed).toISOString().slice(0, 10) === value;
+  }
+
+  return true;
 }
 
 function dedupeHumanWarnings(warnings: AgentscopeWarning[]): AgentscopeWarning[] {

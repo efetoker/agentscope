@@ -81,13 +81,15 @@ describe('agentscope CLI surface', () => {
   });
 
   it('rejects invalid search dates cleanly', async () => {
-    const result = await execa('node', ['dist/cli.js', 'search', 'foo', '--since', 'garbage'], {
-      reject: false,
-    });
+    for (const value of ['garbage', '2026-99-99']) {
+      const result = await execa('node', ['dist/cli.js', 'search', 'foo', '--since', value], {
+        reject: false,
+      });
 
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain('--since must be a valid date');
-    expect(result.stderr).not.toContain('at ');
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('--since must be a valid date');
+      expect(result.stderr).not.toContain('at ');
+    }
   });
 
   it('documents accepted search date formats and only exposes --path as the path filter', async () => {
