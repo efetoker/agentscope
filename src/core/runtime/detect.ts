@@ -189,6 +189,40 @@ async function codexRolloutStores(codexHome: string, indexPath: string, sessions
   return stores;
 }
 
+async function codexIndexHasRowsWithoutRolloutPaths(indexPath: string): Promise<boolean> {
+  let raw = '';
+  try {
+    raw = await readFile(indexPath, 'utf8');
+  } catch {
+    return false;
+  }
+
+  let rowCount = 0;
+  let rolloutPathCount = 0;
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    try {
+      const row = JSON.parse(trimmed) as { rollout_path?: unknown; path?: unknown };
+      rowCount += 1;
+      if (typeof row.rollout_path === 'string' && row.rollout_path.trim()) {
+        rolloutPathCount += 1;
+        continue;
+      }
+      if (typeof row.path === 'string' && row.path.trim()) {
+        rolloutPathCount += 1;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return rowCount > 0 && rolloutPathCount === 0;
+}
+
 export async function detectClaudeRuntime(): Promise<RuntimeDoctorReport> {
   return detectRuntimeFromBlueprint({
     runtime: 'claude',
@@ -208,7 +242,7 @@ export async function detectCodexRuntime(): Promise<RuntimeDoctorReport> {
   const root = resolveCodexHome(env);
   const sessionIndex = resolveCodexSessionIndex(env);
   const sessionsRoot = resolveCodexSessionsRoot(env);
-  return detectRuntimeFromBlueprint({
+  const report = await detectRuntimeFromBlueprint({
     runtime: 'codex',
     paths: {
       root,
@@ -219,6 +253,23 @@ export async function detectCodexRuntime(): Promise<RuntimeDoctorReport> {
       ...(await codexRolloutStores(root, sessionIndex, sessionsRoot)),
     ],
   });
+
+  if (report.detected && await codexIndexHasRowsWithoutRolloutPaths(sessionIndex)) {
+    report.path_status = 'partial';
+    report.sanity.push({
+      name: 'session_index_rollout_paths',
+      status: 'warning',
+      message: 'session_index has rows but no rollout paths',
+    });
+    report.warnings.push({
+      code: 'codex_index_unusable',
+      runtime: 'codex',
+      message: 'session_index has no rollout paths; recursive sessions discovery is required',
+      severity: 'warning',
+    });
+  }
+
+  return report;
 }
 
 export async function detectOpenCodeRuntime(): Promise<RuntimeDoctorReport> {

@@ -185,4 +185,45 @@ describe('detectAllRuntimes', () => {
       else process.env.AGENTSCOPE_CODEX_SESSIONS_ROOT = previousSessions;
     }
   });
+
+  it('warns when the Codex session index has no rollout path entries', async () => {
+    const codexHome = await mkdtemp(path.join(os.tmpdir(), 'agentscope-codex-doctor-indexless-'));
+    const sessionsRoot = path.join(codexHome, 'sessions');
+    const previousHome = process.env.AGENTSCOPE_CODEX_HOME;
+    const previousIndex = process.env.AGENTSCOPE_CODEX_SESSION_INDEX;
+    const previousSessions = process.env.AGENTSCOPE_CODEX_SESSIONS_ROOT;
+
+    try {
+      await mkdir(sessionsRoot, { recursive: true });
+      await writeFile(path.join(codexHome, 'session_index.jsonl'), `${JSON.stringify({
+        id: '019dbac9-505d-7012-9268-6dec8befadaa',
+        thread_name: 'No Man Sky translation',
+        updated_at: '2026-04-23T17:58:50.843Z',
+      })}\n`);
+      process.env.AGENTSCOPE_CODEX_HOME = codexHome;
+      process.env.AGENTSCOPE_CODEX_SESSION_INDEX = path.join(codexHome, 'session_index.jsonl');
+      process.env.AGENTSCOPE_CODEX_SESSIONS_ROOT = sessionsRoot;
+
+      const report = await detectCodexRuntime();
+
+      expect(report.detected).toBe(true);
+      expect(report.path_status).toBe('partial');
+      expect(report.warnings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: 'codex_index_unusable',
+            runtime: 'codex',
+          }),
+        ]),
+      );
+    } finally {
+      await rm(codexHome, { recursive: true, force: true });
+      if (previousHome === undefined) delete process.env.AGENTSCOPE_CODEX_HOME;
+      else process.env.AGENTSCOPE_CODEX_HOME = previousHome;
+      if (previousIndex === undefined) delete process.env.AGENTSCOPE_CODEX_SESSION_INDEX;
+      else process.env.AGENTSCOPE_CODEX_SESSION_INDEX = previousIndex;
+      if (previousSessions === undefined) delete process.env.AGENTSCOPE_CODEX_SESSIONS_ROOT;
+      else process.env.AGENTSCOPE_CODEX_SESSIONS_ROOT = previousSessions;
+    }
+  });
 });

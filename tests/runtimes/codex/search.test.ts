@@ -40,6 +40,50 @@ async function createCodexHome(): Promise<string> {
   return codexHome;
 }
 
+async function createCodexHomeWithMetadataOnlyIndex(): Promise<string> {
+  const codexHome = await mkdtemp(path.join(os.tmpdir(), 'agentscope-codex-search-indexless-'));
+  createdPaths.push(codexHome);
+  const rolloutDir = path.join(codexHome, 'sessions', '2026', '04', '23');
+  await mkdir(rolloutDir, { recursive: true });
+
+  await writeFile(
+    path.join(codexHome, 'session_index.jsonl'),
+    `${JSON.stringify({
+      id: '019dbac9-505d-7012-9268-6dec8befadaa',
+      thread_name: 'No Man Sky translation',
+      updated_at: '2026-04-23T17:58:50.843Z',
+    })}\n`,
+  );
+
+  await writeFile(
+    path.join(rolloutDir, 'rollout-2026-04-23T17-40-48-019dbac9-505d-7012-9268-6dec8befadaa.jsonl'),
+    `${JSON.stringify({
+      timestamp: '2026-04-23T14:41:28.130Z',
+      type: 'session_meta',
+      payload: {
+        id: '019dbac9-505d-7012-9268-6dec8befadaa',
+        timestamp: '2026-04-23T14:40:48.766Z',
+        cwd: '/workspace/project',
+      },
+    })}\n${JSON.stringify({
+      timestamp: '2026-04-23T14:42:14.390Z',
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'user',
+        content: [
+          {
+            type: 'input_text',
+            text: "Go to NoMansSkyTheGame and translate this long No Man's Sky reddit guide to Turkish",
+          },
+        ],
+      },
+    })}\n`,
+  );
+
+  return codexHome;
+}
+
 describe('Codex search adapter', () => {
   it('finds text and session-id matches from rollout fixtures', async () => {
     const result = await searchCodexSessions({
@@ -72,6 +116,37 @@ describe('Codex search adapter', () => {
     expect(result.warnings).toEqual([]);
     expect(result.results[0].runtime).toBe('codex');
     expect(result.results[0].rootSessionId).toBe('codex-root-1');
+  });
+
+  it('finds text matches from recursively discovered live rollouts when the index is metadata-only', async () => {
+    const codexHome = await createCodexHomeWithMetadataOnlyIndex();
+
+    const result = await searchCodexSessions({
+      query: "No Man's Sky reddit guide",
+      liveCodexHome: codexHome,
+    });
+
+    expect(result.results[0]).toMatchObject({
+      runtime: 'codex',
+      rootSessionId: '019dbac9-505d-7012-9268-6dec8befadaa',
+      projectPath: '/workspace/project',
+    });
+    expect(result.results[0].matches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeSessionId: '019dbac9-505d-7012-9268-6dec8befadaa',
+          source: 'message_text',
+        }),
+      ]),
+    );
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'codex_index_unusable',
+          runtime: 'codex',
+        }),
+      ]),
+    );
   });
 
   it('applies shared metadata and date filters', async () => {

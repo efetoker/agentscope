@@ -140,4 +140,71 @@ describe('Codex tree expansion', () => {
       ]),
     );
   });
+
+  it('falls back to recursive rollout discovery when the live index has no rollout paths', async () => {
+    const codexHome = await mkdtemp(path.join(os.tmpdir(), 'agentscope-codex-indexless-'));
+    createdPaths.push(codexHome);
+    const rolloutDir = path.join(codexHome, 'sessions', '2026', '04', '23');
+    await mkdir(rolloutDir, { recursive: true });
+
+    await writeFile(
+      path.join(codexHome, 'session_index.jsonl'),
+      `${JSON.stringify({
+        id: '019dbac9-505d-7012-9268-6dec8befadaa',
+        thread_name: 'No Man Sky translation',
+        updated_at: '2026-04-23T17:58:50.843Z',
+      })}\n`,
+    );
+
+    await writeFile(
+      path.join(rolloutDir, 'rollout-2026-04-23T17-40-48-019dbac9-505d-7012-9268-6dec8befadaa.jsonl'),
+      [
+        {
+          timestamp: '2026-04-23T14:41:28.130Z',
+          type: 'session_meta',
+          payload: {
+            id: '019dbac9-505d-7012-9268-6dec8befadaa',
+            timestamp: '2026-04-23T14:40:48.766Z',
+            cwd: '/workspace/project',
+          },
+        },
+        {
+          timestamp: '2026-04-23T14:42:14.390Z',
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [
+              {
+                type: 'input_text',
+                text: 'Long No Mans Sky reddit guide translated to Turkish',
+              },
+            ],
+          },
+        },
+      ].map((line) => JSON.stringify(line)).join('\n') + '\n',
+    );
+
+    const result = await loadCodexSessionsWithWarnings({ liveCodexHome: codexHome });
+    const discovered = result.sessions.find((session) => session.sessionId === '019dbac9-505d-7012-9268-6dec8befadaa');
+
+    expect(discovered).toBeDefined();
+    expect(discovered?.pathHint).toBe('/workspace/project');
+    expect(discovered?.events.every((event) => event.session_id === '019dbac9-505d-7012-9268-6dec8befadaa')).toBe(true);
+    expect(discovered?.events.map((event) => event.event.text).join('\n')).toContain('No Mans Sky reddit guide');
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'codex_index_unusable',
+          runtime: 'codex',
+        }),
+      ]),
+    );
+    expect(result.warnings).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'codex_rollout_unreadable' }),
+        expect.objectContaining({ code: 'codex_rollout_missing' }),
+      ]),
+    );
+  });
 });

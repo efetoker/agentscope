@@ -162,20 +162,22 @@ async function loadLiveIndex(indexPath: string, warnings: AgentscopeWarning[]): 
 }
 
 function normalizeLiveEvent(raw: Record<string, unknown>, fallback: CodexSessionIndexEntry): CodexRolloutEvent {
-  const message = objectValue(raw.message);
-  const item = objectValue(raw.item);
-  const rawType = firstString(raw.type, raw.record_type, item?.type) ?? 'metadata';
+  const payload = objectValue(raw.payload);
+  const message = objectValue(raw.message) ?? objectValue(payload?.message);
+  const item = objectValue(raw.item) ?? objectValue(payload?.item);
+  const rawType = firstString(raw.type, raw.record_type, item?.type, payload?.type) ?? 'metadata';
   const text = collectText(raw).join(' ').trim();
-  const sessionId = firstString(raw.session_id, raw.sessionId, fallback.session_id) ?? fallback.session_id;
+  const payloadSessionId = rawType === 'session_meta' ? firstString(payload?.id) : undefined;
+  const sessionId = firstString(raw.session_id, raw.sessionId, payload?.session_id, payload?.sessionId, payloadSessionId, fallback.session_id) ?? fallback.session_id;
   const rootSessionId = firstString(raw.root_session_id, raw.rootSessionId, fallback.root_session_id, sessionId) ?? sessionId;
 
   return {
     session_id: sessionId,
     root_session_id: rootSessionId,
     parent_session_id: firstString(raw.parent_session_id, raw.parentSessionId, fallback.parent_session_id) ?? null,
-    timestamp: firstString(raw.timestamp, raw.time, fallback.timestamp) ?? '',
-    repo_path: firstString(raw.repo_path, raw.cwd, fallback.repo_path) ?? fallback.repo_path,
-    path_hint: firstString(raw.path_hint, raw.cwd, fallback.path_hint) ?? fallback.path_hint,
+    timestamp: firstString(raw.timestamp, raw.time, payload?.timestamp, fallback.timestamp) ?? '',
+    repo_path: firstString(raw.repo_path, raw.cwd, payload?.repo_path, payload?.cwd, fallback.repo_path) ?? fallback.repo_path,
+    path_hint: firstString(raw.path_hint, raw.cwd, payload?.path_hint, payload?.cwd, fallback.path_hint) ?? fallback.path_hint,
     rawType,
     ...(raw.usage ? { tokens: raw.usage } : {}),
     event: {
@@ -205,20 +207,44 @@ function resolveRolloutPath(codexHome: string, sessionsRoot: string, rolloutPath
   return path.join(sessionsRoot, rolloutPath);
 }
 
+function hasRolloutPath(entry: CodexSessionIndexEntry): boolean {
+  return entry.rollout_path.trim().length > 0;
+}
+
+function discoveredEntry(file: string): CodexSessionIndexEntry {
+  return {
+    session_id: '',
+    rollout_path: file,
+    repo_path: '',
+    path_hint: '',
+    timestamp: '',
+  };
+}
+
 async function loadLiveSessions(input: CodexLoadInput, warnings: AgentscopeWarning[]): Promise<CodexSessionRecord[]> {
   const codexHome = input.liveCodexHome ?? resolveCodexHome();
   const indexPath = input.sessionIndexJsonl ?? resolveCodexSessionIndex({ AGENTSCOPE_CODEX_HOME: codexHome });
   const sessionsRoot = input.sessionsRoot ?? resolveCodexSessionsRoot({ AGENTSCOPE_CODEX_HOME: codexHome });
   const index = await loadLiveIndex(indexPath, warnings);
-  const entries: CodexSessionIndexEntry[] = index.length > 0
-    ? index
-    : (await discoverJsonlFiles(sessionsRoot)).map((file) => ({
-        session_id: path.basename(file, '.jsonl'),
-        rollout_path: file,
-        repo_path: '',
-        path_hint: '',
-        timestamp: '',
-      }));
+  const indexedEntries = index.filter(hasRolloutPath);
+  const discoveredFiles = await discoverJsonlFiles(sessionsRoot);
+
+  if (index.length > 0 && indexedEntries.length === 0) {
+    warnings.push(warning('codex_index_unusable', 'Codex session index has no rollout paths; using recursive session discovery'));
+  }
+
+  const entriesByPath = new Map<string, CodexSessionIndexEntry>();
+  for (const entry of indexedEntries) {
+    entriesByPath.set(resolveRolloutPath(codexHome, sessionsRoot, entry.rollout_path), entry);
+  }
+
+  for (const file of discoveredFiles) {
+    if (!entriesByPath.has(file)) {
+      entriesByPath.set(file, discoveredEntry(file));
+    }
+  }
+
+  const entries = Array.from(entriesByPath.values());
 
   if (entries.length === 0) {
     warnings.push(warning('codex_store_missing', 'No supported Codex live store found'));
@@ -238,17 +264,31 @@ async function loadLiveSessions(input: CodexLoadInput, warnings: AgentscopeWarni
     }
     const sessionId = entry.session_id || first?.session_id || path.basename(rolloutFile, '.jsonl');
     const rootSessionId = entry.root_session_id ?? first?.root_session_id ?? sessionId;
+    const parentSessionId = entry.parent_session_id ?? first?.parent_session_id ?? null;
+    const repoPath = entry.repo_path || first?.repo_path || '';
+    const pathHint = entry.path_hint || first?.path_hint || entry.repo_path || '';
+    const timestamp = entry.timestamp || first?.timestamp || '';
+    const normalizedEvents = events.map((event) => ({
+      ...event,
+      session_id: event.session_id || sessionId,
+      root_session_id: event.root_session_id || rootSessionId,
+      parent_session_id: event.parent_session_id ?? parentSessionId,
+      repo_path: event.repo_path || repoPath,
+      path_hint: event.path_hint || pathHint,
+      timestamp: event.timestamp || timestamp,
+    }));
+
     sessions.push({
       sessionId,
       rootSessionId,
-      parentSessionId: entry.parent_session_id ?? first?.parent_session_id ?? null,
-      repoPath: entry.repo_path || first?.repo_path || '',
-      pathHint: entry.path_hint || first?.path_hint || entry.repo_path || '',
-      timestamp: entry.timestamp || first?.timestamp || '',
+      parentSessionId,
+      repoPath,
+      pathHint,
+      timestamp,
       rolloutPath: entry.rollout_path || rolloutFile,
       sourcePath: rolloutFile,
       linkageConfidence: durable ? 'durable' : 'unknown',
-      events,
+      events: normalizedEvents,
     });
   }
   return sessions;

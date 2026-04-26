@@ -12,7 +12,9 @@
 
 ## Live adapter support
 
-Live mode uses `~/.codex/session_index.jsonl` for session discovery and `~/.codex/sessions/**` rollout/event JSONL files for session content. Codex local storage is observed runtime behavior, not a stable public API, so support stays conservative where durable metadata is absent.
+Live mode merges `~/.codex/session_index.jsonl` entries that include rollout paths with recursive discovery under `~/.codex/sessions/**`. Some observed `session_index.jsonl` layouts contain only thread metadata (`id`, `thread_name`, `updated_at`) and no rollout path; in that case live mode falls back to recursive rollout discovery and `doctor` reports `codex_index_unusable`.
+
+Codex local storage is observed runtime behavior, not a stable public API, so support stays conservative where durable metadata is absent.
 
 Parent/root linkage may be conservative when records do not expose durable relationship metadata. In those cases, `agentscope` prefers a safer single-session tree with runtime-scoped warnings over aggressive inferred grouping.
 
