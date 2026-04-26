@@ -91,4 +91,19 @@ describe('Claude search adapter', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('excludes the active Claude session from live search results', async () => {
+    const { root, projectsDir } = await createLiveClaudeProjectsRoot();
+    try {
+      const result = await searchClaudeSessions({
+        query: 'middleware',
+        liveProjectsRoot: projectsDir,
+        activeSessionId: 'claude-live-root',
+      });
+
+      expect(result.results).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

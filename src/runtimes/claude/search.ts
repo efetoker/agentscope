@@ -104,6 +104,10 @@ export async function searchClaudeSessions(input: ClaudeSearchInput): Promise<Cl
   const groupedResults = new Map<string, SearchResultTree>();
 
   for (const session of sessions) {
+    if (input.liveProjectsRoot && input.activeSessionId && session.sessionId === input.activeSessionId) {
+      continue;
+    }
+
     if (!matchesFilters(session, input)) {
       continue;
     }

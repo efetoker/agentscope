@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import { createRuntimeRegistry } from '../../src/core/runtime/registry.js';
-import { detectAllRuntimes, type RuntimeDoctorReport } from '../../src/core/runtime/detect.js';
+import { detectAllRuntimes, detectCodexRuntime, type RuntimeDoctorReport } from '../../src/core/runtime/detect.js';
 
 function makeReport(overrides: Partial<RuntimeDoctorReport> & Pick<RuntimeDoctorReport, 'runtime'>): RuntimeDoctorReport {
   return {
@@ -134,5 +137,52 @@ describe('detectAllRuntimes', () => {
       code: 'probe_failed',
       runtime: 'codex',
     });
+  });
+
+  it('reports unreadable Codex rollout files in doctor diagnostics', async () => {
+    const codexHome = await mkdtemp(path.join(os.tmpdir(), 'agentscope-codex-doctor-'));
+    const sessionsRoot = path.join(codexHome, 'sessions');
+    const rollout = path.join(sessionsRoot, 'unreadable.jsonl');
+    const previousHome = process.env.AGENTSCOPE_CODEX_HOME;
+    const previousIndex = process.env.AGENTSCOPE_CODEX_SESSION_INDEX;
+    const previousSessions = process.env.AGENTSCOPE_CODEX_SESSIONS_ROOT;
+
+    try {
+      await mkdir(sessionsRoot, { recursive: true });
+      await writeFile(path.join(codexHome, 'session_index.jsonl'), `${JSON.stringify({
+        session_id: 'codex-unreadable',
+        rollout_path: 'sessions/unreadable.jsonl',
+        repo_path: '/workspace/project',
+        path_hint: '/workspace/project',
+        timestamp: '2026-04-26T00:00:00.000Z',
+      })}\n`);
+      await writeFile(rollout, '{}\n');
+      await chmod(rollout, 0o000);
+      process.env.AGENTSCOPE_CODEX_HOME = codexHome;
+      process.env.AGENTSCOPE_CODEX_SESSION_INDEX = path.join(codexHome, 'session_index.jsonl');
+      process.env.AGENTSCOPE_CODEX_SESSIONS_ROOT = sessionsRoot;
+
+      const report = await detectCodexRuntime();
+
+      expect(report.stores).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'rollout:unreadable.jsonl', status: 'unreadable' }),
+        ]),
+      );
+      expect(report.warnings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: 'store_unreadable', runtime: 'codex' }),
+        ]),
+      );
+    } finally {
+      await chmod(rollout, 0o600).catch(() => undefined);
+      await rm(codexHome, { recursive: true, force: true });
+      if (previousHome === undefined) delete process.env.AGENTSCOPE_CODEX_HOME;
+      else process.env.AGENTSCOPE_CODEX_HOME = previousHome;
+      if (previousIndex === undefined) delete process.env.AGENTSCOPE_CODEX_SESSION_INDEX;
+      else process.env.AGENTSCOPE_CODEX_SESSION_INDEX = previousIndex;
+      if (previousSessions === undefined) delete process.env.AGENTSCOPE_CODEX_SESSIONS_ROOT;
+      else process.env.AGENTSCOPE_CODEX_SESSIONS_ROOT = previousSessions;
+    }
   });
 });

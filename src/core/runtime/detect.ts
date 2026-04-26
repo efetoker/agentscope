@@ -1,10 +1,11 @@
-import { access, constants } from 'node:fs/promises';
+import { access, constants, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import type { AgentscopeWarning } from '../warnings.js';
 import { createRuntimeRegistry, type RuntimeId } from './registry.js';
 import { detectOpenCodeRuntime as detectOpenCodeFixtureRuntime } from '../../runtimes/opencode/detect.js';
+import { resolveCodexHome, resolveCodexSessionIndex, resolveCodexSessionsRoot } from '../../runtimes/codex/detect.js';
 
 export type RuntimeStoreStatus = 'present' | 'missing' | 'unreadable' | 'partial';
 export type RuntimeSanityStatus = 'ok' | 'warning' | 'error' | 'skipped';
@@ -141,6 +142,53 @@ function homePath(...segments: string[]): string {
   return path.join(os.homedir(), ...segments);
 }
 
+function resolveCodexRolloutPath(codexHome: string, sessionsRoot: string, rolloutPath: string): string {
+  if (path.isAbsolute(rolloutPath)) {
+    return rolloutPath;
+  }
+  if (rolloutPath.startsWith('sessions/')) {
+    return path.join(codexHome, rolloutPath);
+  }
+  return path.join(sessionsRoot, rolloutPath);
+}
+
+async function codexRolloutStores(codexHome: string, indexPath: string, sessionsRoot: string): Promise<Array<{ name: string; path: string }>> {
+  let raw = '';
+  try {
+    raw = await readFile(indexPath, 'utf8');
+  } catch {
+    return [];
+  }
+
+  const stores: Array<{ name: string; path: string }> = [];
+  const seen = new Set<string>();
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    try {
+      const row = JSON.parse(trimmed) as { rollout_path?: unknown; path?: unknown };
+      const rolloutPath = typeof row.rollout_path === 'string' ? row.rollout_path : typeof row.path === 'string' ? row.path : undefined;
+      if (!rolloutPath) {
+        continue;
+      }
+
+      const resolved = resolveCodexRolloutPath(codexHome, sessionsRoot, rolloutPath);
+      if (seen.has(resolved)) {
+        continue;
+      }
+      seen.add(resolved);
+      stores.push({ name: `rollout:${path.basename(resolved)}`, path: resolved });
+    } catch {
+      continue;
+    }
+  }
+
+  return stores;
+}
+
 export async function detectClaudeRuntime(): Promise<RuntimeDoctorReport> {
   return detectRuntimeFromBlueprint({
     runtime: 'claude',
@@ -156,14 +204,19 @@ export async function detectClaudeRuntime(): Promise<RuntimeDoctorReport> {
 }
 
 export async function detectCodexRuntime(): Promise<RuntimeDoctorReport> {
+  const env = process.env;
+  const root = resolveCodexHome(env);
+  const sessionIndex = resolveCodexSessionIndex(env);
+  const sessionsRoot = resolveCodexSessionsRoot(env);
   return detectRuntimeFromBlueprint({
     runtime: 'codex',
     paths: {
-      root: homePath('.codex'),
+      root,
     },
     stores: [
-      { name: 'sessions', path: homePath('.codex', 'sessions') },
-      { name: 'session_index', path: homePath('.codex', 'session_index.jsonl') },
+      { name: 'sessions', path: sessionsRoot },
+      { name: 'session_index', path: sessionIndex },
+      ...(await codexRolloutStores(root, sessionIndex, sessionsRoot)),
     ],
   });
 }

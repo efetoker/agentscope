@@ -51,6 +51,7 @@ export interface ClaudeSearchInput {
   here?: string;
   since?: string;
   until?: string;
+  activeSessionId?: string;
 }
 
 export interface ClaudeSearchResult {

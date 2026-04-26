@@ -145,6 +145,7 @@ export async function runSearchCommand(options: SearchCommandOptions): Promise<C
                   : undefined,
             since: options.since,
             until: options.until,
+            activeSessionId: env.AGENTSCOPE_ACTIVE_CLAUDE_SESSION_ID ?? env.CLAUDE_CODE_SESSION_ID ?? env.CLAUDE_SESSION_ID,
           });
           combinedResults.push(...results.results);
           warnings.push(...results.warnings);
