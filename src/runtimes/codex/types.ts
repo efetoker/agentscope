@@ -70,6 +70,12 @@ export interface CodexSearchInput {
   sessionsRoot?: string;
   historyJsonl?: string;
   archivedSessionsRoot?: string;
+  regex?: boolean;
+  repo?: string;
+  path?: string;
+  here?: string;
+  since?: string;
+  until?: string;
 }
 
 export interface CodexSearchResult {

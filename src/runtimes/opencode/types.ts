@@ -61,6 +61,12 @@ export interface OpenCodeSearchInput {
   query: string;
   fixtureDb?: string;
   liveDb?: string;
+  regex?: boolean;
+  repo?: string;
+  path?: string;
+  here?: string;
+  since?: string;
+  until?: string;
 }
 
 export interface OpenCodeSearchResult {

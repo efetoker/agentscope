@@ -6,6 +6,84 @@ function normalize(value: string): string {
   return value.toLowerCase();
 }
 
+function buildMatcher(input: OpenCodeSearchInput): (value: string) => boolean {
+  if (input.regex) {
+    let expression: RegExp;
+    try {
+      expression = new RegExp(input.query, 'i');
+    } catch (error) {
+      throw new Error(`Invalid regular expression: ${(error as Error).message}`);
+    }
+
+    return (value: string) => expression.test(value);
+  }
+
+  const query = normalize(input.query);
+  return (value: string) => normalize(value).includes(query);
+}
+
+function parseTimestamp(value?: string): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  if (/^\d+$/.test(value)) {
+    const numeric = Number(value);
+    return numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
+
+function isWithinDateRange(timestamps: string[], since?: string, until?: string): boolean {
+  if (!since && !until) {
+    return true;
+  }
+
+  const parsedTimestamps = timestamps
+    .map((timestamp) => parseTimestamp(timestamp))
+    .filter((timestamp): timestamp is number => timestamp !== undefined);
+
+  if (parsedTimestamps.length === 0) {
+    return false;
+  }
+
+  const earliest = Math.min(...parsedTimestamps);
+  const latest = Math.max(...parsedTimestamps);
+  const sinceTime = parseTimestamp(since);
+  const untilTime = parseTimestamp(until);
+
+  if (sinceTime !== undefined && latest < sinceTime) {
+    return false;
+  }
+
+  if (untilTime !== undefined && earliest > untilTime) {
+    return false;
+  }
+
+  return true;
+}
+
+function matchesFilters(record: OpenCodeSessionRecord, input: OpenCodeSearchInput): boolean {
+  if (input.repo && !normalize(record.repoPath).includes(normalize(input.repo))) {
+    return false;
+  }
+
+  if (input.path && !normalize(record.pathHint).includes(normalize(input.path))) {
+    return false;
+  }
+
+  if (input.here) {
+    const normalizedHere = normalize(input.here);
+    if (!normalize(record.pathHint).includes(normalizedHere) && !normalize(record.repoPath).includes(normalizedHere)) {
+      return false;
+    }
+  }
+
+  return isWithinDateRange([record.createdAt, ...record.messages.flatMap((message) => message.time ? [message.time] : [])], input.since, input.until);
+}
+
 function pushMatch(matches: SearchMatch[], nodeSessionId: string, source: SearchMatch['source'], preview?: string) {
   matches.push({
     nodeSessionId,
@@ -14,22 +92,21 @@ function pushMatch(matches: SearchMatch[], nodeSessionId: string, source: Search
   });
 }
 
-function collectMatches(record: OpenCodeSessionRecord, query: string): SearchMatch[] {
+function collectMatches(record: OpenCodeSessionRecord, matcher: (value: string) => boolean): SearchMatch[] {
   const matches: SearchMatch[] = [];
-  const normalizedQuery = normalize(query);
 
-  if (normalize(record.sessionId).includes(normalizedQuery) || normalize(record.rootSessionId).includes(normalizedQuery)) {
+  if (matcher(record.sessionId) || matcher(record.rootSessionId)) {
     pushMatch(matches, record.sessionId, 'session_id', record.sessionId);
   }
 
   for (const metadataValue of [record.repoPath, record.pathHint, record.createdAt]) {
-    if (normalize(metadataValue).includes(normalizedQuery)) {
+    if (matcher(metadataValue)) {
       pushMatch(matches, record.sessionId, 'metadata', metadataValue);
     }
   }
 
   for (const event of record.events) {
-    if (normalize(event.body).includes(normalizedQuery)) {
+    if (matcher(event.body)) {
       pushMatch(
         matches,
         record.sessionId,
@@ -48,14 +125,14 @@ function collectMatches(record: OpenCodeSessionRecord, query: string): SearchMat
       message.path,
       message.time,
     ]) {
-      if (metadataValue && normalize(metadataValue).includes(normalizedQuery)) {
+      if (metadataValue && matcher(metadataValue)) {
         pushMatch(matches, record.sessionId, 'metadata', metadataValue);
       }
     }
 
     for (const part of message.parts) {
       const searchable = part.text ?? JSON.stringify(part.data ?? {});
-      if (!normalize(searchable).includes(normalizedQuery)) {
+      if (!matcher(searchable)) {
         continue;
       }
 
@@ -71,11 +148,16 @@ function sourceForPart(part: OpenCodeMessagePart): SearchMatch['source'] {
 }
 
 export async function searchOpenCodeSessions(input: OpenCodeSearchInput): Promise<OpenCodeSearchResult> {
+  const matcher = buildMatcher(input);
   const { sessions, warnings } = loadOpenCodeSessionsWithWarnings(input);
   const grouped = new Map<string, SearchResultTree>();
 
   for (const session of sessions) {
-    const sessionMatches = collectMatches(session, input.query);
+    if (!matchesFilters(session, input)) {
+      continue;
+    }
+
+    const sessionMatches = collectMatches(session, matcher);
     if (sessionMatches.length === 0) {
       continue;
     }

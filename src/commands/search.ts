@@ -131,6 +131,17 @@ export async function runSearchCommand(options: SearchCommandOptions): Promise<C
                   sessionIndexJsonl: resolveCodexSessionIndex(env),
                   sessionsRoot: resolveCodexSessionsRoot(env),
                 }),
+            regex: options.regex,
+            repo: options.repo,
+            path: options.path,
+            here:
+              options.here === true
+                ? options.cwd ?? process.cwd()
+                : typeof options.here === 'string'
+                  ? options.here
+                  : undefined,
+            since: options.since,
+            until: options.until,
           });
           combinedResults.push(...codexResults.results);
           warnings.push(...codexResults.warnings);
@@ -140,6 +151,17 @@ export async function runSearchCommand(options: SearchCommandOptions): Promise<C
         const opencodeResults = await searchOpenCodeSessions({
           query: options.query,
           ...(fixtureMode ? { fixtureDb: env.AGENTSCOPE_OPENCODE_DB ?? 'fixtures/opencode/opencode.db' } : { liveDb: resolveOpenCodeLiveDb(env) }),
+          regex: options.regex,
+          repo: options.repo,
+          path: options.path,
+          here:
+            options.here === true
+              ? options.cwd ?? process.cwd()
+              : typeof options.here === 'string'
+                ? options.here
+                : undefined,
+          since: options.since,
+          until: options.until,
         });
         combinedResults.push(...opencodeResults.results);
         warnings.push(...opencodeResults.warnings);

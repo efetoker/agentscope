@@ -53,4 +53,43 @@ describe('OpenCode search adapter', () => {
       await fixture.cleanup();
     }
   });
+
+  it('applies shared metadata and date filters', async () => {
+    const base = {
+      query: 'proxy',
+      fixtureDb: 'fixtures/opencode/opencode.db',
+    };
+
+    await expect(searchOpenCodeSessions({ ...base, repo: 'definitely-not-a-real-repo' })).resolves.toMatchObject({
+      results: [],
+      warnings: [],
+    });
+    await expect(searchOpenCodeSessions({ ...base, path: 'definitely-not-a-real-path' })).resolves.toMatchObject({
+      results: [],
+      warnings: [],
+    });
+    await expect(searchOpenCodeSessions({ ...base, here: 'definitely-not-a-real-path' })).resolves.toMatchObject({
+      results: [],
+      warnings: [],
+    });
+    await expect(searchOpenCodeSessions({ ...base, since: '2999-01-01' })).resolves.toMatchObject({
+      results: [],
+      warnings: [],
+    });
+    await expect(searchOpenCodeSessions({ ...base, until: '1999-01-01' })).resolves.toMatchObject({
+      results: [],
+      warnings: [],
+    });
+  });
+
+  it('supports regex search when requested', async () => {
+    const result = await searchOpenCodeSessions({
+      query: 'proxy.*ordering',
+      fixtureDb: 'fixtures/opencode/opencode.db',
+      regex: true,
+    });
+
+    expect(result.results[0].rootSessionId).toBe('oc-root-1');
+    expect(result.results[0].matches.some((match) => match.nodeSessionId === 'oc-child-1')).toBe(true);
+  });
 });

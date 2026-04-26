@@ -73,4 +73,43 @@ describe('Codex search adapter', () => {
     expect(result.results[0].runtime).toBe('codex');
     expect(result.results[0].rootSessionId).toBe('codex-root-1');
   });
+
+  it('applies shared metadata and date filters', async () => {
+    const base = {
+      query: 'proxy',
+      fixturesRoot: 'fixtures/codex',
+    };
+
+    await expect(searchCodexSessions({ ...base, repo: 'definitely-not-a-real-repo' })).resolves.toMatchObject({
+      results: [],
+      warnings: [],
+    });
+    await expect(searchCodexSessions({ ...base, path: 'definitely-not-a-real-path' })).resolves.toMatchObject({
+      results: [],
+      warnings: [],
+    });
+    await expect(searchCodexSessions({ ...base, here: 'definitely-not-a-real-path' })).resolves.toMatchObject({
+      results: [],
+      warnings: [],
+    });
+    await expect(searchCodexSessions({ ...base, since: '2999-01-01' })).resolves.toMatchObject({
+      results: [],
+      warnings: [],
+    });
+    await expect(searchCodexSessions({ ...base, until: '1999-01-01' })).resolves.toMatchObject({
+      results: [],
+      warnings: [],
+    });
+  });
+
+  it('supports regex search when requested', async () => {
+    const result = await searchCodexSessions({
+      query: 'proxy.*ordering',
+      fixturesRoot: 'fixtures/codex',
+      regex: true,
+    });
+
+    expect(result.results[0].rootSessionId).toBe('019dab34-c95a-7bf1-a0f7-817dd7bed87d');
+    expect(result.results[0].matches.some((match) => match.nodeSessionId === 'child-019dab')).toBe(true);
+  });
 });

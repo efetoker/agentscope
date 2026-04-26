@@ -89,4 +89,36 @@ describe('cross-runtime search', () => {
     const parsed = JSON.parse(result.stdout);
     expect(parsed.error.code).toBe('runtime_unavailable');
   });
+
+  it.each([
+    ['--repo', 'definitely-not-a-real-repo'],
+    ['--path', 'definitely-not-a-real-path'],
+    ['--since', '2999-01-01'],
+  ])('does not return unrelated non-Claude results for %s filters', async (flag, value) => {
+    const result = await execa('node', ['dist/cli.js', 'search', 'proxy', '--json', flag, value], {
+      reject: false,
+      env: fixtureEnv,
+    });
+
+    expect(result.exitCode).toBe(1);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.error.code).toBe('no_matches');
+  });
+
+  it.each(['codex', 'opencode'])('passes regex searches through to %s', async (runtime) => {
+    const result = await execa('node', ['dist/cli.js', 'search', 'proxy.*ordering', '--agent', runtime, '--json', '--regex'], {
+      reject: false,
+      env: {
+        ...fixtureEnv,
+        AGENTSCOPE_OPENCODE_DB: 'fixtures/opencode/opencode.db',
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.results).toEqual([
+      expect.objectContaining({ runtime }),
+    ]);
+    expect(parsed.warnings).toEqual([]);
+  });
 });
