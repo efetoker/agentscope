@@ -1,4 +1,5 @@
 import type { SearchMatch, SearchResultTree } from '../../core/types.js';
+import { parseDateFilterBoundary } from '../../core/date-filter.js';
 import type { ClaudeSearchInput, ClaudeSearchResult, ClaudeSessionEvent, ClaudeSessionRecord } from './types.js';
 import { loadClaudeSessionsWithWarnings } from './tree.js';
 
@@ -23,15 +24,24 @@ function buildMatcher(input: ClaudeSearchInput): (value: string) => boolean {
 }
 
 function isWithinDateRange(record: ClaudeSessionRecord, since?: string, until?: string): boolean {
-  const timestamps = record.events.map((event) => event.timestamp);
-  const earliest = timestamps[0];
-  const latest = timestamps[timestamps.length - 1];
+  const timestamps = record.events
+    .map((event) => parseDateFilterBoundary(event.timestamp, 'since'))
+    .filter((timestamp): timestamp is number => timestamp !== undefined);
 
-  if (since && latest < since) {
+  if (timestamps.length === 0) {
     return false;
   }
 
-  if (until && earliest > until) {
+  const earliest = Math.min(...timestamps);
+  const latest = Math.max(...timestamps);
+  const sinceTime = parseDateFilterBoundary(since, 'since');
+  const untilTime = parseDateFilterBoundary(until, 'until');
+
+  if (sinceTime !== undefined && latest < sinceTime) {
+    return false;
+  }
+
+  if (untilTime !== undefined && earliest > untilTime) {
     return false;
   }
 

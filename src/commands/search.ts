@@ -10,6 +10,7 @@ import type { SearchResultTree } from '../core/types.js';
 import { formatWarningHuman, type AgentscopeWarning } from '../core/warnings.js';
 import { detectAllRuntimes } from '../core/runtime/detect.js';
 import { allTargetRuntimesUnavailable, isSupportedRuntime, runtimeFailureInjected, runtimeUnavailableWarning } from '../core/runtime/availability.js';
+import { isValidDateFilter } from '../core/date-filter.js';
 
 export interface SearchCommandOptions {
   query?: string;
@@ -56,23 +57,6 @@ function jsonError(code: string, message: string): CommandResult {
     ),
     stderr: '',
   };
-}
-
-function isValidDateFilter(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}(?:$|T)/.test(value)) {
-    return !Number.isNaN(Date.parse(value));
-  }
-
-  const parsed = Date.parse(value);
-  if (Number.isNaN(parsed)) {
-    return false;
-  }
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return new Date(parsed).toISOString().slice(0, 10) === value;
-  }
-
-  return true;
 }
 
 function dedupeHumanWarnings(warnings: AgentscopeWarning[]): AgentscopeWarning[] {

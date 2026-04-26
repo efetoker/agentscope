@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -36,6 +36,39 @@ function safeBundleName(input: MaterializeBundleInput): string {
   return `agentscope-${input.runtime}-${input.resolvedRootSessionId}`.replace(/[^A-Za-z0-9._-]/g, '-');
 }
 
+async function assertReplaceableDeterministicBundle(bundlePath: string, input: MaterializeBundleInput): Promise<void> {
+  let stats;
+  try {
+    stats = await lstat(bundlePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return;
+    }
+
+    throw error;
+  }
+
+  if (!stats.isDirectory()) {
+    throw new Error('Refusing to replace existing non-agentscope bundle directory');
+  }
+
+  try {
+    const manifest = JSON.parse(await readFile(path.join(bundlePath, 'manifest.json'), 'utf8')) as Partial<BundleManifest>;
+    if (
+      manifest.runtime === input.runtime &&
+      manifest.resolvedRootSessionId === input.resolvedRootSessionId &&
+      Array.isArray(manifest.payloadFiles) &&
+      typeof manifest.generatedAt === 'string'
+    ) {
+      return;
+    }
+  } catch {
+    // Missing or malformed manifests are not positive proof of agentscope ownership.
+  }
+
+  throw new Error('Refusing to replace existing non-agentscope bundle directory');
+}
+
 async function materializeBundle(
   input: MaterializeBundleInput,
   parentDir: string,
@@ -48,6 +81,7 @@ async function materializeBundle(
   await mkdir(parentDir, { recursive: true });
   const bundlePath = deterministic ? path.join(parentDir, safeBundleName(input)) : await mkdtemp(path.join(parentDir, `agentscope-${input.runtime}-`));
   if (deterministic) {
+    await assertReplaceableDeterministicBundle(bundlePath, input);
     await rm(bundlePath, { recursive: true, force: true });
     await mkdir(bundlePath, { recursive: true });
   }

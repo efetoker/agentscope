@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -95,6 +95,59 @@ describe('bundle materialization', () => {
     ).rejects.toThrow('Unsafe bundle payload path: ../escape.jsonl');
 
     expect(await readdir(outputRoot)).toEqual([]);
+  });
+
+  it('refuses to replace a deterministic bundle directory it does not own', async () => {
+    const outputRoot = await mkdtemp(path.join(os.tmpdir(), 'agentscope-bundle-test-'));
+    createdPaths.push(outputRoot);
+    const existingBundlePath = path.join(outputRoot, 'agentscope-claude-root-1');
+    const sentinelPath = path.join(existingBundlePath, 'user-data.txt');
+    await mkdir(existingBundlePath, { recursive: true });
+    await writeFile(sentinelPath, 'do not delete');
+
+    await expect(
+      materializeBundleInDirectory(
+        {
+          runtime: 'claude',
+          requestedId: 'abc123',
+          resolvedRootSessionId: 'root-1',
+          payloadFiles: [{ relativePath: 'root.jsonl', content: '{"type":"session_meta"}\n' }],
+          warnings: [],
+        },
+        outputRoot,
+      ),
+    ).rejects.toThrow('Refusing to replace existing non-agentscope bundle directory');
+
+    await expect(readFile(sentinelPath, 'utf8')).resolves.toBe('do not delete');
+  });
+
+  it('replaces an owned deterministic bundle directory on repeat materialization', async () => {
+    const outputRoot = await mkdtemp(path.join(os.tmpdir(), 'agentscope-bundle-test-'));
+    createdPaths.push(outputRoot);
+
+    const first = await materializeBundleInDirectory(
+      {
+        runtime: 'claude',
+        requestedId: 'abc123',
+        resolvedRootSessionId: 'root-1',
+        payloadFiles: [{ relativePath: 'root.jsonl', content: 'old\n' }],
+        warnings: [],
+      },
+      outputRoot,
+    );
+    const second = await materializeBundleInDirectory(
+      {
+        runtime: 'claude',
+        requestedId: 'abc123',
+        resolvedRootSessionId: 'root-1',
+        payloadFiles: [{ relativePath: 'root.jsonl', content: 'new\n' }],
+        warnings: [],
+      },
+      outputRoot,
+    );
+
+    expect(second.path).toBe(first.path);
+    await expect(readFile(path.join(second.path, 'root.jsonl'), 'utf8')).resolves.toBe('new\n');
   });
 
   it('redacts manifest path metadata and keeps restrictive file permissions', async () => {

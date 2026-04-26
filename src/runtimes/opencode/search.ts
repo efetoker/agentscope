@@ -1,4 +1,5 @@
 import type { SearchMatch, SearchResultTree } from '../../core/types.js';
+import { parseDateFilterBoundary } from '../../core/date-filter.js';
 import type { OpenCodeMessagePart, OpenCodeSearchInput, OpenCodeSearchResult, OpenCodeSessionRecord } from './types.js';
 import { loadOpenCodeSessionsWithWarnings } from './tree.js';
 
@@ -22,27 +23,13 @@ function buildMatcher(input: OpenCodeSearchInput): (value: string) => boolean {
   return (value: string) => normalize(value).includes(query);
 }
 
-function parseTimestamp(value?: string): number | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  if (/^\d+$/.test(value)) {
-    const numeric = Number(value);
-    return numeric < 10_000_000_000 ? numeric * 1000 : numeric;
-  }
-
-  const parsed = Date.parse(value);
-  return Number.isNaN(parsed) ? undefined : parsed;
-}
-
 function isWithinDateRange(timestamps: string[], since?: string, until?: string): boolean {
   if (!since && !until) {
     return true;
   }
 
   const parsedTimestamps = timestamps
-    .map((timestamp) => parseTimestamp(timestamp))
+    .map((timestamp) => parseDateFilterBoundary(timestamp, 'since'))
     .filter((timestamp): timestamp is number => timestamp !== undefined);
 
   if (parsedTimestamps.length === 0) {
@@ -51,8 +38,8 @@ function isWithinDateRange(timestamps: string[], since?: string, until?: string)
 
   const earliest = Math.min(...parsedTimestamps);
   const latest = Math.max(...parsedTimestamps);
-  const sinceTime = parseTimestamp(since);
-  const untilTime = parseTimestamp(until);
+  const sinceTime = parseDateFilterBoundary(since, 'since');
+  const untilTime = parseDateFilterBoundary(until, 'until');
 
   if (sinceTime !== undefined && latest < sinceTime) {
     return false;

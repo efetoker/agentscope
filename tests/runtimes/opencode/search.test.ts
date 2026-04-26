@@ -19,8 +19,8 @@ async function createLiveOpenCodeDb(): Promise<{ dbPath: string; cleanup: () => 
   `);
   db.prepare('INSERT INTO project (id, worktree) VALUES (?, ?)').run('project-1', '/workspace/project');
   db.prepare('INSERT INTO session (id, project_id, parent_id, directory, slug, title, version, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('oc-live-root', 'project-1', null, '/workspace/project', 'root', 'Root', '1.0.0', 1777161600000, 1777161600000);
-  db.prepare('INSERT INTO session (id, project_id, parent_id, directory, slug, title, version, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('oc-live-child', 'project-1', 'oc-live-root', '/workspace/project/subdir', 'child', 'Child', '1.0.0', 1777161660000, 1777161660000);
-  db.prepare('INSERT INTO message (id, session_id, data) VALUES (?, ?, ?)').run('message-1', 'oc-live-child', JSON.stringify({ role: 'user', agent: 'build', providerID: 'anthropic', modelID: 'claude-sonnet', path: 'src/index.ts', time: '2026-04-26T00:00:00.000Z' }));
+  db.prepare('INSERT INTO session (id, project_id, parent_id, directory, slug, title, version, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('oc-live-child', 'project-1', 'oc-live-root', '/workspace/project/subdir', 'child', 'Child', '1.0.0', 1777204800000, 1777204800000);
+  db.prepare('INSERT INTO message (id, session_id, data) VALUES (?, ?, ?)').run('message-1', 'oc-live-child', JSON.stringify({ role: 'user', agent: 'build', providerID: 'anthropic', modelID: 'claude-sonnet', path: 'src/index.ts', time: '2026-04-26T12:00:00.000Z' }));
   db.prepare('INSERT INTO part (id, session_id, message_id, data) VALUES (?, ?, ?, ?)').run('part-1', 'oc-live-child', 'message-1', JSON.stringify({ type: 'text', text: 'proxy configuration details' }));
   db.close();
 
@@ -80,6 +80,21 @@ describe('OpenCode search adapter', () => {
       results: [],
       warnings: [],
     });
+  });
+
+  it('includes sessions that occur during a date-only until day', async () => {
+    const fixture = await createLiveOpenCodeDb();
+    try {
+      const result = await searchOpenCodeSessions({
+        query: 'proxy',
+        liveDb: fixture.dbPath,
+        until: '2026-04-26',
+      });
+
+      expect(result.results.map((tree) => tree.rootSessionId)).toContain('oc-live-root');
+    } finally {
+      await fixture.cleanup();
+    }
   });
 
   it('supports regex search when requested', async () => {
