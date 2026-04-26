@@ -25,11 +25,10 @@ cli
   .option('--json', 'Print structured JSON')
   .option('--regex', 'Treat query as a regular expression')
   .option('--agent <runtime>', 'Restrict search to a specific runtime')
-  .option('--repo <path>', 'Filter by repo path')
   .option('--path <path>', 'Filter by execution path')
   .option('--here [path]', 'Filter to the current path or an explicit path')
-  .option('--since <date>', 'Filter to results on or after this timestamp')
-  .option('--until <date>', 'Filter to results on or before this timestamp')
+  .option('--since <date>', 'Filter to results on or after this timestamp (ISO 8601 or YYYY-MM-DD)')
+  .option('--until <date>', 'Filter to results on or before this timestamp (ISO 8601 or YYYY-MM-DD)')
   .option('--limit <count>', 'Limit the number of root results returned')
   .option('--all', 'Disable truncation')
   .action(async (query, options) => {
@@ -40,12 +39,11 @@ cli
         json: Boolean(options.json),
         regex: Boolean(options.regex),
         agent: options.agent,
-        repo: options.repo,
         path: options.path,
         here: options.here,
         since: options.since,
         until: options.until,
-        limit: options.limit ? Number(options.limit) : undefined,
+        limit: options.limit !== undefined ? Number(options.limit) : undefined,
         all: Boolean(options.all),
         cwd: process.cwd(),
       }),
@@ -92,4 +90,16 @@ cli
   });
 
 cli.help();
-cli.parse();
+const limitFlagIndex = process.argv.findIndex((arg) => arg === '--limit');
+const limitValue = limitFlagIndex >= 0 ? process.argv[limitFlagIndex + 1] : undefined;
+if (limitValue && /^-\d/.test(limitValue)) {
+  process.stderr.write('--limit must be greater than 0\n');
+  process.exitCode = 1;
+} else {
+  try {
+    cli.parse();
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.message : 'CLI parse failed'}\n`);
+    process.exitCode = 1;
+  }
+}

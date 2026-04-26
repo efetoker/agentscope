@@ -25,4 +25,16 @@ describe('search JSON contract', () => {
     expect(JSON.stringify(parsed)).not.toContain('raw proxy output body');
     expect(parsed).not.toHaveProperty('summary');
   });
+
+  it('reports null limit for --all instead of the internal effective limit', async () => {
+    const result = await execa('node', ['dist/cli.js', 'search', 'proxy', '--json', '--all'], {
+      reject: false,
+      env: fixtureEnv,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.limit).toBeNull();
+    expect(parsed.truncated).toBe(false);
+  });
 });

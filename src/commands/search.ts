@@ -17,7 +17,6 @@ export interface SearchCommandOptions {
   json?: boolean;
   regex?: boolean;
   agent?: string;
-  repo?: string;
   path?: string;
   here?: string | boolean;
   since?: string;
@@ -59,6 +58,10 @@ function jsonError(code: string, message: string): CommandResult {
   };
 }
 
+function isValidDateFilter(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isNaN(Date.parse(value));
+}
+
 async function liveReaderUnavailable(command: 'search', json = false): Promise<CommandResult> {
   const reports = await detectAllRuntimes();
   const detected = reports.filter((report) => report.detected).map((report) => report.runtime);
@@ -72,6 +75,18 @@ export async function runSearchCommand(options: SearchCommandOptions): Promise<C
   const rawArgs = options.rawArgs ?? [];
   if (!options.query || rawArgs.length !== 1) {
     return commandError('Expected exactly one query');
+  }
+
+  if (options.limit !== undefined && (!Number.isInteger(options.limit) || options.limit <= 0)) {
+    return commandError('--limit must be greater than 0');
+  }
+
+  if (options.since && !isValidDateFilter(options.since)) {
+    return commandError('--since must be a valid date (ISO 8601 or YYYY-MM-DD)');
+  }
+
+  if (options.until && !isValidDateFilter(options.until)) {
+    return commandError('--until must be a valid date (ISO 8601 or YYYY-MM-DD)');
   }
 
   if (options.agent && options.agent !== 'claude' && options.agent !== 'codex' && options.agent !== 'opencode') {
@@ -105,7 +120,6 @@ export async function runSearchCommand(options: SearchCommandOptions): Promise<C
             query: options.query,
             ...(fixtureMode ? { fixturesRoot: resolveClaudeFixturesRoot(env) } : { liveProjectsRoot: resolveClaudeProjectsRoot(env) }),
             regex: options.regex,
-            repo: options.repo,
             path: options.path,
             here:
               options.here === true
@@ -132,7 +146,6 @@ export async function runSearchCommand(options: SearchCommandOptions): Promise<C
                   sessionsRoot: resolveCodexSessionsRoot(env),
                 }),
             regex: options.regex,
-            repo: options.repo,
             path: options.path,
             here:
               options.here === true
@@ -152,7 +165,6 @@ export async function runSearchCommand(options: SearchCommandOptions): Promise<C
           query: options.query,
           ...(fixtureMode ? { fixtureDb: env.AGENTSCOPE_OPENCODE_DB ?? 'fixtures/opencode/opencode.db' } : { liveDb: resolveOpenCodeLiveDb(env) }),
           regex: options.regex,
-          repo: options.repo,
           path: options.path,
           here:
             options.here === true
@@ -186,14 +198,15 @@ export async function runSearchCommand(options: SearchCommandOptions): Promise<C
       return options.json ? jsonError('no_matches', 'No matches found') : commandError('No matches found');
     }
 
-    const requestedLimit = options.all ? combinedResults.length : options.limit ?? 20;
-    const truncated = !options.all && combinedResults.length > requestedLimit;
-    const limitedResults = truncated ? combinedResults.slice(0, requestedLimit) : combinedResults;
+    const effectiveLimit = options.limit ?? 20;
+    const requestedLimit = options.all ? null : effectiveLimit;
+    const truncated = !options.all && combinedResults.length > effectiveLimit;
+    const limitedResults = truncated ? combinedResults.slice(0, effectiveLimit) : combinedResults;
 
     if (truncated) {
       warnings.push({
         code: 'search_results_truncated',
-        message: `Search results truncated to ${requestedLimit} root results`,
+        message: `Search results truncated to ${effectiveLimit} root results`,
         severity: 'warning',
       });
     }

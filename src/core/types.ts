@@ -25,7 +25,7 @@ export interface SearchResultTree {
 
 export interface SearchResultsEnvelope {
   query: string;
-  limit: number;
+  limit: number | null;
   truncated: boolean;
   results: SearchResultTree[];
   warnings: AgentscopeWarning[];
