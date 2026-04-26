@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execa } from 'execa';
@@ -155,5 +155,119 @@ describe('Claude fixture-mode CLI commands', () => {
 
     const manifest = JSON.parse(await readFile(path.join(firstBundlePath, 'manifest.json'), 'utf8'));
     expect(manifest.includedSessionIds).toEqual(['claude-root-1', 'claude-child-1']);
+  });
+});
+
+async function createLiveClaudeProjectsRoot(options: { includeMalformedLine?: boolean } = {}) {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'agentscope-claude-cli-live-'));
+  const projectsDir = path.join(root, '.claude', 'projects');
+  const projectDir = path.join(projectsDir, 'project-one');
+  await mkdir(projectDir, { recursive: true });
+  const lines = [
+    JSON.stringify({
+      sessionId: 'claude-live-root',
+      uuid: 'event-1',
+      parentUuid: null,
+      timestamp: '2026-04-25T10:00:00.000Z',
+      cwd: '/Users/synthetic/project-one',
+      type: 'user',
+      message: { content: [{ type: 'text', text: 'Investigate middleware behavior' }] },
+    }),
+  ];
+
+  if (options.includeMalformedLine) {
+    lines.push('{not valid json');
+  }
+
+  await writeFile(
+    path.join(projectDir, 'root-session.jsonl'),
+    lines.join('\n'),
+  );
+
+  createdPaths.push(root);
+  return projectsDir;
+}
+
+describe('Claude live-mode CLI commands', () => {
+  it('reports no matches when default live search reaches Claude but unsupported runtimes fail', async () => {
+    const projectsDir = await createLiveClaudeProjectsRoot();
+    const result = await execa('node', ['dist/cli.js', 'search', 'not-present-in-live-store', '--json'], {
+      reject: false,
+      env: { AGENTSCOPE_CLAUDE_PROJECTS_DIR: projectsDir, AGENTSCOPE_FAIL_RUNTIME: 'opencode' },
+    });
+
+    expect(result.exitCode).toBe(1);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.error.code).toBe('no_matches');
+    expect(parsed.error.message).toBe('No matches found');
+  });
+
+  it('searches synthetic live Claude stores without fixture mode', async () => {
+    const projectsDir = await createLiveClaudeProjectsRoot();
+    const result = await execa('node', ['dist/cli.js', 'search', 'middleware', '--agent', 'claude', '--json'], {
+      reject: false,
+      env: { AGENTSCOPE_CLAUDE_PROJECTS_DIR: projectsDir },
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.results[0].runtime).toBe('claude');
+    expect(parsed.results[0].rootSessionId).toBe('claude-live-root');
+  });
+
+  it('shows synthetic live Claude stores without live-reader placeholder', async () => {
+    const projectsDir = await createLiveClaudeProjectsRoot();
+    const result = await execa('node', ['dist/cli.js', 'show', 'claude-live-root', '--agent', 'claude', '--json'], {
+      reject: false,
+      env: { AGENTSCOPE_CLAUDE_PROJECTS_DIR: projectsDir },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).not.toContain('live_reader_unimplemented');
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.resolved_runtime).toBe('claude');
+    createdPaths.push(path.dirname(parsed.manifest_path));
+  });
+
+  it('reports session not found when default live show reaches Claude with parser warnings', async () => {
+    const projectsDir = await createLiveClaudeProjectsRoot({ includeMalformedLine: true });
+    const result = await execa('node', ['dist/cli.js', 'show', 'missing-live-session', '--json'], {
+      reject: false,
+      env: { AGENTSCOPE_CLAUDE_PROJECTS_DIR: projectsDir },
+    });
+
+    expect(result.exitCode).toBe(1);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.error.code).toBe('session_not_found');
+    expect(parsed.error.message).toBe('Session not found');
+  });
+
+  it('exports synthetic live Claude stores', async () => {
+    const projectsDir = await createLiveClaudeProjectsRoot();
+    const outDir = await mkdtemp(path.join(os.tmpdir(), 'agentscope-claude-live-export-'));
+    createdPaths.push(outDir);
+    const result = await execa('node', ['dist/cli.js', 'export', 'claude-live-root', '--agent', 'claude', '--out', outDir], {
+      reject: false,
+      env: { AGENTSCOPE_CLAUDE_PROJECTS_DIR: projectsDir },
+    });
+
+    expect(result.exitCode).toBe(0);
+    const bundlePath = extractPath(result.stdout, 'Bundle path');
+    const manifest = JSON.parse(await readFile(path.join(bundlePath, 'manifest.json'), 'utf8'));
+    expect(manifest.runtime).toBe('claude');
+    expect(manifest.includedSessionIds).toEqual(['claude-live-root']);
+  });
+
+  it('reports session not found when default live export reaches Claude with parser warnings', async () => {
+    const projectsDir = await createLiveClaudeProjectsRoot({ includeMalformedLine: true });
+    const outDir = await mkdtemp(path.join(os.tmpdir(), 'agentscope-claude-live-export-'));
+    createdPaths.push(outDir);
+    const result = await execa('node', ['dist/cli.js', 'export', 'missing-live-session', '--out', outDir], {
+      reject: false,
+      env: { AGENTSCOPE_CLAUDE_PROJECTS_DIR: projectsDir },
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe('Session not found');
   });
 });

@@ -1,6 +1,6 @@
 import type { SearchMatch, SearchResultTree } from '../../core/types.js';
 import type { CodexSearchInput, CodexSearchResult, CodexSessionRecord } from './types.js';
-import { loadCodexSessions } from './tree.js';
+import { loadCodexSessionsWithWarnings } from './tree.js';
 
 function normalize(value: string): string {
   return value.toLowerCase();
@@ -29,6 +29,10 @@ function collectCodexMatches(record: CodexSessionRecord, query: string): SearchM
   }
 
   for (const event of record.events) {
+    if (event.rawType && normalize(event.rawType).includes(normalizedQuery)) {
+      pushMatch(matches, record.sessionId, 'metadata', event.rawType);
+    }
+
     if (normalize(event.event.text).includes(normalizedQuery)) {
       pushMatch(
         matches,
@@ -43,7 +47,7 @@ function collectCodexMatches(record: CodexSessionRecord, query: string): SearchM
 }
 
 export async function searchCodexSessions(input: CodexSearchInput): Promise<CodexSearchResult> {
-  const sessions = await loadCodexSessions(input.fixturesRoot);
+  const { sessions, warnings } = await loadCodexSessionsWithWarnings(input);
   const groupedResults = new Map<string, SearchResultTree>();
 
   for (const session of sessions) {
@@ -64,5 +68,6 @@ export async function searchCodexSessions(input: CodexSearchInput): Promise<Code
 
   return {
     results: Array.from(groupedResults.values()),
+    warnings,
   };
 }

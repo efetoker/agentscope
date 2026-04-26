@@ -1,6 +1,6 @@
 import type { SearchMatch, SearchResultTree } from '../../core/types.js';
 import type { ClaudeSearchInput, ClaudeSearchResult, ClaudeSessionEvent, ClaudeSessionRecord } from './types.js';
-import { loadClaudeSessions } from './tree.js';
+import { loadClaudeSessionsWithWarnings } from './tree.js';
 
 function normalize(value: string): string {
   return value.toLowerCase();
@@ -100,7 +100,7 @@ function collectEventMatches(event: ClaudeSessionEvent, matcher: (value: string)
 
 export async function searchClaudeSessions(input: ClaudeSearchInput): Promise<ClaudeSearchResult> {
   const matcher = buildMatcher(input);
-  const sessions = await loadClaudeSessions(input.fixturesRoot);
+  const { sessions, warnings } = await loadClaudeSessionsWithWarnings(input);
   const groupedResults = new Map<string, SearchResultTree>();
 
   for (const session of sessions) {
@@ -125,5 +125,6 @@ export async function searchClaudeSessions(input: ClaudeSearchInput): Promise<Cl
 
   return {
     results: Array.from(groupedResults.values()),
+    warnings,
   };
 }

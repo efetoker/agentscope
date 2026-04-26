@@ -1,4 +1,5 @@
 import type { SearchResultTree } from '../../core/types.js';
+import type { AgentscopeWarning } from '../../core/warnings.js';
 
 export interface OpenCodeRuntimePaths {
   configRoot: string;
@@ -22,6 +23,29 @@ export interface OpenCodeEventRow {
   body: string;
 }
 
+export interface OpenCodeMessagePart {
+  id: string;
+  messageId?: string;
+  kind: 'text' | 'tool' | 'metadata';
+  text?: string;
+  data?: Record<string, unknown>;
+}
+
+export interface OpenCodeMessageRecord {
+  id: string;
+  sessionId: string;
+  role?: string;
+  agent?: string;
+  providerID?: string;
+  modelID?: string;
+  tokens?: unknown;
+  cost?: number;
+  path?: string;
+  time?: string;
+  data?: Record<string, unknown>;
+  parts: OpenCodeMessagePart[];
+}
+
 export interface OpenCodeSessionRecord {
   sessionId: string;
   rootSessionId: string;
@@ -30,20 +54,34 @@ export interface OpenCodeSessionRecord {
   pathHint: string;
   createdAt: string;
   events: OpenCodeEventRow[];
+  messages: OpenCodeMessageRecord[];
 }
 
 export interface OpenCodeSearchInput {
   query: string;
-  fixtureDb: string;
+  fixtureDb?: string;
+  liveDb?: string;
 }
 
 export interface OpenCodeSearchResult {
   results: SearchResultTree[];
+  warnings: AgentscopeWarning[];
 }
 
 export interface OpenCodeTreeInput {
   sessionId: string;
-  fixtureDb: string;
+  fixtureDb?: string;
+  liveDb?: string;
+}
+
+export interface OpenCodeLoadInput {
+  fixtureDb?: string;
+  liveDb?: string;
+}
+
+export interface OpenCodeLoadResult {
+  sessions: OpenCodeSessionRecord[];
+  warnings: AgentscopeWarning[];
 }
 
 export interface OpenCodeResolvedTree {
@@ -51,4 +89,5 @@ export interface OpenCodeResolvedTree {
   rootSessionId: string;
   sessionIds: string[];
   sessions: OpenCodeSessionRecord[];
+  warnings: AgentscopeWarning[];
 }

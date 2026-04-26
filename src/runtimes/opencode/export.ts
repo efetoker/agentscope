@@ -3,28 +3,30 @@ import { expandOpenCodeTree } from './tree.js';
 
 export interface OpenCodeExportInput {
   sessionId: string;
-  fixtureDb: string;
+  fixtureDb?: string;
+  liveDb?: string;
 }
 
 export async function prepareOpenCodeBundle(input: OpenCodeExportInput): Promise<MaterializeBundleInput> {
   const tree = await expandOpenCodeTree({
     sessionId: input.sessionId,
-    fixtureDb: input.fixtureDb,
+    ...(input.liveDb ? { liveDb: input.liveDb } : { fixtureDb: input.fixtureDb }),
   });
+  const liveMode = Boolean(input.liveDb);
 
   return {
     runtime: 'opencode',
     requestedId: input.sessionId,
     resolvedRootSessionId: tree.rootSessionId,
     includedSessionIds: tree.sessionIds,
-    queriedSources: [input.fixtureDb],
+    queriedSources: liveMode ? ['opencode-db'] : input.fixtureDb ? [input.fixtureDb] : [],
     payloadFiles: [
       {
         relativePath: 'opencode-tree.json',
         content: JSON.stringify(tree, null, 2),
       },
     ],
-    warnings: [],
+    warnings: tree.warnings,
     repo: {
       value: tree.sessions[0]?.repoPath,
       status: 'detected',

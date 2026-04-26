@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import type { BundleManifest, MaterializeBundleInput } from './manifest.js';
+import { redactPreview } from '../privacy/redact.js';
 
 export interface MaterializedBundle {
   path: string;
@@ -10,7 +11,32 @@ export interface MaterializedBundle {
   manifest: BundleManifest;
 }
 
+function assertSafeBundleRelativePath(relativePath: string): void {
+  const normalized = path.normalize(relativePath);
+  const isWindowsDrivePath = /^[A-Za-z]:[\\/]/.test(relativePath);
+  const hasTraversalSegment = relativePath.split(/[\\/]+/).includes('..');
+
+  if (path.isAbsolute(relativePath) || isWindowsDrivePath || normalized === '..' || hasTraversalSegment) {
+    throw new Error(`Unsafe bundle payload path: ${relativePath}`);
+  }
+}
+
+function sanitizeManifestLocation<T extends { value?: string; status: string }>(location: T): T {
+  if (!location.value) {
+    return location;
+  }
+
+  return {
+    ...location,
+    value: redactPreview(location.value),
+  };
+}
+
 async function materializeBundle(input: MaterializeBundleInput, parentDir: string): Promise<MaterializedBundle> {
+  for (const file of input.payloadFiles) {
+    assertSafeBundleRelativePath(file.relativePath);
+  }
+
   await mkdir(parentDir, { recursive: true });
   const bundlePath = await mkdtemp(path.join(parentDir, `agentscope-${input.runtime}-`));
   await chmod(bundlePath, 0o700).catch(() => undefined);
@@ -25,8 +51,8 @@ async function materializeBundle(input: MaterializeBundleInput, parentDir: strin
     payloadFiles: input.payloadFiles.map((file) => file.relativePath),
     warnings: input.warnings,
     generatedAt: new Date().toISOString(),
-    ...(input.repo ? { repo: input.repo } : {}),
-    ...(input.path ? { path: input.path } : {}),
+    ...(input.repo ? { repo: sanitizeManifestLocation(input.repo) } : {}),
+    ...(input.path ? { path: sanitizeManifestLocation(input.path) } : {}),
   };
 
   for (const file of input.payloadFiles) {

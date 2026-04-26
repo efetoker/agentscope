@@ -1,4 +1,5 @@
 import type { SearchResultTree } from '../../core/types.js';
+import type { AgentscopeWarning } from '../../core/warnings.js';
 
 export interface ClaudeRuntimePaths {
   root: string;
@@ -17,10 +18,13 @@ export interface ClaudeSessionEvent {
   sessionId: string;
   rootSessionId: string;
   parentSessionId: string | null;
+  uuid?: string;
+  parentUuid?: string | null;
   timestamp: string;
   repoPath: string;
   cwd: string;
   pathHint: string;
+  type?: string;
   message: {
     content: ClaudeMessageContentPart[];
   };
@@ -39,7 +43,8 @@ export interface ClaudeSessionRecord {
 
 export interface ClaudeSearchInput {
   query: string;
-  fixturesRoot: string;
+  fixturesRoot?: string;
+  liveProjectsRoot?: string;
   regex?: boolean;
   repo?: string;
   path?: string;
@@ -50,11 +55,13 @@ export interface ClaudeSearchInput {
 
 export interface ClaudeSearchResult {
   results: SearchResultTree[];
+  warnings: AgentscopeWarning[];
 }
 
 export interface ClaudeTreeInput {
   sessionId: string;
-  fixturesRoot: string;
+  fixturesRoot?: string;
+  liveProjectsRoot?: string;
 }
 
 export interface ClaudeResolvedTree {
@@ -62,4 +69,15 @@ export interface ClaudeResolvedTree {
   rootSessionId: string;
   sessionIds: string[];
   sessions: ClaudeSessionRecord[];
+  warnings: AgentscopeWarning[];
+}
+
+export interface ClaudeLoadInput {
+  fixturesRoot?: string;
+  liveProjectsRoot?: string;
+}
+
+export interface ClaudeLoadResult {
+  sessions: ClaudeSessionRecord[];
+  warnings: AgentscopeWarning[];
 }

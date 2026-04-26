@@ -1,12 +1,16 @@
 import { materializeTempBundle } from '../core/bundle/materialize.js';
 import { prepareClaudeBundle } from '../runtimes/claude/export.js';
-import { isClaudeFixtureMode, resolveClaudeFixturesRoot } from '../runtimes/claude/detect.js';
+import { isClaudeFixtureMode, resolveClaudeFixturesRoot, resolveClaudeProjectsRoot } from '../runtimes/claude/detect.js';
 import { prepareCodexBundle } from '../runtimes/codex/export.js';
-import { resolveCodexFixturesRoot } from '../runtimes/codex/detect.js';
-import { loadClaudeSessions } from '../runtimes/claude/tree.js';
+import { resolveCodexFixturesRoot, resolveCodexHome, resolveCodexSessionIndex, resolveCodexSessionsRoot } from '../runtimes/codex/detect.js';
+import { loadClaudeSessions, loadClaudeSessionsWithWarnings } from '../runtimes/claude/tree.js';
 import { loadCodexSessions } from '../runtimes/codex/tree.js';
 import { prepareOpenCodeBundle } from '../runtimes/opencode/export.js';
-import { loadOpenCodeSessions } from '../runtimes/opencode/tree.js';
+import { resolveOpenCodeLiveDb } from '../runtimes/opencode/detect.js';
+import { loadOpenCodeSessions, loadOpenCodeSessionsWithWarnings } from '../runtimes/opencode/tree.js';
+import { detectAllRuntimes } from '../core/runtime/detect.js';
+import type { AgentscopeWarning } from '../core/warnings.js';
+import { allTargetRuntimesUnavailable, isSupportedRuntime, runtimeFailureInjected, runtimeUnavailableWarning } from '../core/runtime/availability.js';
 
 export interface ShowCommandOptions {
   id?: string;
@@ -57,62 +61,113 @@ function jsonError(code: string, message: string, candidates: ResolutionCandidat
   };
 }
 
+async function liveReaderUnavailable(command: 'show', json = false): Promise<CommandResult> {
+  const reports = await detectAllRuntimes();
+  const detected = reports.filter((report) => report.detected).map((report) => report.runtime);
+  const suffix = detected.length > 0 ? ` for detected runtimes: ${detected.join(', ')}` : ' for any detected runtime';
+  const message = `Live ${command} is enabled, but live session readers are not implemented yet${suffix}. Set AGENTSCOPE_FIXTURES_MODE=1 to use synthetic fixtures for development.`;
+
+  return json ? jsonError('live_reader_unimplemented', message) : commandError(message);
+}
+
 async function collectCandidates(
   env: NodeJS.ProcessEnv,
   runtimes: Array<'claude' | 'codex' | 'opencode'>,
   id: string,
-): Promise<ResolutionCandidate[]> {
+  fixtureMode = true,
+): Promise<{ candidates: ResolutionCandidate[]; warnings: AgentscopeWarning[] }> {
   const candidates: ResolutionCandidate[] = [];
+  const warnings: AgentscopeWarning[] = [];
 
   if (runtimes.includes('claude')) {
-    const sessions = await loadClaudeSessions(resolveClaudeFixturesRoot(env));
-    for (const session of sessions) {
-      if (session.sessionId.toLowerCase().includes(id.toLowerCase())) {
-        candidates.push({
-          runtime: 'claude',
-          sessionId: session.sessionId,
-          rootSessionId: session.rootSessionId,
-          repoPath: session.repoPath,
-          pathHint: session.pathHint,
-          timestamp: session.events[0]?.timestamp ?? '',
-        });
+    if (runtimeFailureInjected('claude', env)) {
+      warnings.push(runtimeUnavailableWarning('claude'));
+    } else {
+      try {
+        const loaded = fixtureMode
+          ? { sessions: await loadClaudeSessions(resolveClaudeFixturesRoot(env)), warnings: [] }
+          : await loadClaudeSessionsWithWarnings({ liveProjectsRoot: resolveClaudeProjectsRoot(env) });
+        warnings.push(...loaded.warnings);
+        const sessions = loaded.sessions;
+        for (const session of sessions) {
+          if (session.sessionId.toLowerCase().includes(id.toLowerCase())) {
+            candidates.push({
+              runtime: 'claude',
+              sessionId: session.sessionId,
+              rootSessionId: session.rootSessionId,
+              repoPath: session.repoPath,
+              pathHint: session.pathHint,
+              timestamp: session.events[0]?.timestamp ?? '',
+            });
+          }
+        }
+      } catch {
+        warnings.push(runtimeUnavailableWarning('claude'));
       }
     }
   }
 
   if (runtimes.includes('codex')) {
-    const sessions = await loadCodexSessions(resolveCodexFixturesRoot(env));
-    for (const session of sessions) {
-      if (session.sessionId.toLowerCase().includes(id.toLowerCase())) {
-        candidates.push({
-          runtime: 'codex',
-          sessionId: session.sessionId,
-          rootSessionId: session.rootSessionId,
-          repoPath: session.repoPath,
-          pathHint: session.pathHint,
-          timestamp: session.timestamp,
-        });
+    if (runtimeFailureInjected('codex', env)) {
+      warnings.push(runtimeUnavailableWarning('codex'));
+    } else {
+      try {
+        const sessions = await loadCodexSessions(
+          fixtureMode
+            ? { fixturesRoot: resolveCodexFixturesRoot(env) }
+            : {
+                liveCodexHome: resolveCodexHome(env),
+                sessionIndexJsonl: resolveCodexSessionIndex(env),
+                sessionsRoot: resolveCodexSessionsRoot(env),
+              },
+        );
+        for (const session of sessions) {
+          if (session.sessionId.toLowerCase().includes(id.toLowerCase())) {
+            candidates.push({
+              runtime: 'codex',
+              sessionId: session.sessionId,
+              rootSessionId: session.rootSessionId,
+              repoPath: session.repoPath,
+              pathHint: session.pathHint,
+              timestamp: session.timestamp,
+            });
+          }
+        }
+      } catch {
+        warnings.push(runtimeUnavailableWarning('codex'));
       }
     }
   }
 
   if (runtimes.includes('opencode')) {
-    const sessions = loadOpenCodeSessions(env.AGENTSCOPE_OPENCODE_DB ?? 'fixtures/opencode/opencode.db');
-    for (const session of sessions) {
-      if (session.sessionId.toLowerCase().includes(id.toLowerCase())) {
-        candidates.push({
-          runtime: 'opencode',
-          sessionId: session.sessionId,
-          rootSessionId: session.rootSessionId,
-          repoPath: session.repoPath,
-          pathHint: session.pathHint,
-          timestamp: session.createdAt,
-        });
+    if (runtimeFailureInjected('opencode', env)) {
+      warnings.push(runtimeUnavailableWarning('opencode'));
+    } else {
+      try {
+        const loaded = fixtureMode
+          ? { sessions: loadOpenCodeSessions(env.AGENTSCOPE_OPENCODE_DB ?? 'fixtures/opencode/opencode.db'), warnings: [] }
+          : loadOpenCodeSessionsWithWarnings({ liveDb: resolveOpenCodeLiveDb(env) });
+        warnings.push(...loaded.warnings);
+        const sessions = loaded.sessions;
+        for (const session of sessions) {
+          if (session.sessionId.toLowerCase().includes(id.toLowerCase())) {
+            candidates.push({
+              runtime: 'opencode',
+              sessionId: session.sessionId,
+              rootSessionId: session.rootSessionId,
+              repoPath: session.repoPath,
+              pathHint: session.pathHint,
+              timestamp: session.createdAt,
+            });
+          }
+        }
+      } catch {
+        warnings.push(runtimeUnavailableWarning('opencode'));
       }
     }
   }
 
-  return candidates;
+  return { candidates, warnings };
 }
 
 function resolveCandidate(candidates: ResolutionCandidate[], requestedId: string): ResolutionCandidate {
@@ -143,8 +198,11 @@ export async function runShowCommand(options: ShowCommandOptions): Promise<Comma
   }
 
   const env = options.env ?? process.env;
-  if (!isClaudeFixtureMode(env)) {
-    return commandError('Claude show currently requires fixture mode');
+  const fixtureMode = isClaudeFixtureMode(env);
+  if (options.agent && !isSupportedRuntime(options.agent)) {
+    return options.json
+      ? jsonError('runtime_unavailable', `Unsupported agent in current build: ${options.agent}`)
+      : commandError(`Unsupported agent in current build: ${options.agent}`);
   }
 
   try {
@@ -156,12 +214,19 @@ export async function runShowCommand(options: ShowCommandOptions): Promise<Comma
           : options.agent === 'opencode'
             ? ['opencode']
             : ['claude', 'codex', 'opencode'];
-    const candidates = await collectCandidates(env, runtimes, options.id);
+    const { candidates, warnings } = await collectCandidates(env, runtimes, options.id, fixtureMode);
     let selected: ResolutionCandidate;
     try {
       selected = resolveCandidate(candidates, options.id);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'show failed';
+      const allRuntimesFailed = allTargetRuntimesUnavailable(warnings, runtimes);
+      if (message === 'session_not_found' && allRuntimesFailed) {
+        return options.json
+          ? jsonError('runtime_unavailable', 'All targeted runtimes failed')
+          : commandError('All targeted runtimes failed');
+      }
+
       if (message === 'ambiguous_session_id') {
         return options.json
           ? jsonError('ambiguous_session_id', 'Session id is ambiguous', candidates)
@@ -181,17 +246,23 @@ export async function runShowCommand(options: ShowCommandOptions): Promise<Comma
       selected.runtime === 'claude'
         ? await prepareClaudeBundle({
             sessionId: selected.sessionId,
-            fixturesRoot: resolveClaudeFixturesRoot(env),
+            ...(fixtureMode ? { fixturesRoot: resolveClaudeFixturesRoot(env) } : { liveProjectsRoot: resolveClaudeProjectsRoot(env) }),
           })
         : selected.runtime === 'codex'
           ? await prepareCodexBundle({
               sessionId: selected.sessionId,
-              fixturesRoot: resolveCodexFixturesRoot(env),
+              ...(fixtureMode
+                ? { fixturesRoot: resolveCodexFixturesRoot(env) }
+                : {
+                    liveCodexHome: resolveCodexHome(env),
+                    sessionIndexJsonl: resolveCodexSessionIndex(env),
+                    sessionsRoot: resolveCodexSessionsRoot(env),
+                  }),
             })
-          : await prepareOpenCodeBundle({
-              sessionId: selected.sessionId,
-              fixtureDb: env.AGENTSCOPE_OPENCODE_DB ?? 'fixtures/opencode/opencode.db',
-            });
+           : await prepareOpenCodeBundle({
+               sessionId: selected.sessionId,
+               ...(fixtureMode ? { fixtureDb: env.AGENTSCOPE_OPENCODE_DB ?? 'fixtures/opencode/opencode.db' } : { liveDb: resolveOpenCodeLiveDb(env) }),
+             });
     const bundle = await materializeTempBundle(bundleInput);
 
     if (options.json) {
@@ -207,7 +278,7 @@ export async function runShowCommand(options: ShowCommandOptions): Promise<Comma
             session_count: bundle.manifest.includedSessionIds.length,
             bundle_path: bundle.path,
             manifest_path: bundle.manifestPath,
-            warnings: bundle.manifest.warnings,
+            warnings: [...warnings, ...bundle.manifest.warnings],
           },
           null,
           2,

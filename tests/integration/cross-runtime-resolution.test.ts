@@ -96,4 +96,86 @@ describe('cross-runtime resolution', () => {
       'child-019dab',
     ]);
   });
+
+  it('show resolves from available runtimes and reports failed untargeted runtimes', async () => {
+    const result = await execa('node', ['dist/cli.js', 'show', 'child-019d', '--json'], {
+      reject: false,
+      env: {
+        ...fixtureEnv,
+        AGENTSCOPE_FAIL_RUNTIME: 'claude',
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.resolved_runtime).toBe('codex');
+    expect(parsed.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'runtime_unavailable',
+          runtime: 'claude',
+          severity: 'warning',
+        }),
+      ]),
+    );
+    expect(JSON.stringify(parsed)).not.toContain('/Users/');
+  });
+
+  it('show resolves from available runtimes when another runtime store is missing', async () => {
+    const result = await execa('node', ['dist/cli.js', 'show', 'child-019d', '--json'], {
+      reject: false,
+      env: {
+        ...fixtureEnv,
+        AGENTSCOPE_OPENCODE_DB: 'fixtures/opencode/missing-opencode.db',
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.resolved_runtime).toBe('codex');
+    expect(parsed.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'runtime_unavailable',
+          runtime: 'opencode',
+          severity: 'warning',
+        }),
+      ]),
+    );
+    expect(JSON.stringify(parsed)).not.toContain('/Users/');
+  });
+
+  it('show fails when the explicitly targeted runtime is unavailable', async () => {
+    const result = await execa('node', ['dist/cli.js', 'show', 'claude-root-1', '--agent', 'claude', '--json'], {
+      reject: false,
+      env: {
+        ...fixtureEnv,
+        AGENTSCOPE_FAIL_RUNTIME: 'claude',
+      },
+    });
+
+    expect(result.exitCode).toBe(1);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.error.code).toBe('runtime_unavailable');
+  });
+
+  it('export resolves from available runtimes when an untargeted runtime fails', async () => {
+    const outDir = await mkdtemp(path.join(os.tmpdir(), 'agentscope-partial-export-'));
+    createdPaths.push(outDir);
+
+    const result = await execa('node', ['dist/cli.js', 'export', 'child-019d', '--out', outDir], {
+      reject: false,
+      env: {
+        ...fixtureEnv,
+        AGENTSCOPE_FAIL_RUNTIME: 'claude',
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Resolved runtime: codex');
+    const bundlePath = extractPath(result.stdout, 'Bundle path');
+    const exportManifest = JSON.parse(await readFile(path.join(bundlePath, 'manifest.json'), 'utf8'));
+    expect(exportManifest.runtime).toBe('codex');
+    expect(JSON.stringify(exportManifest)).not.toContain('/Users/');
+  });
 });

@@ -33,8 +33,8 @@ Planned next:
 
 ## Runtime notes
 
-- Claude Code: implemented
-- Codex: implemented
-- OpenCode: implemented
+- Claude Code: live project JSONL adapter and fixture-mode coverage
+- Codex: live index/rollout adapter with conservative linkage notes
+- OpenCode: live SQLite adapter and DB-aware `doctor` diagnostics
 
-See [`docs/runtimes/README.md`](docs/runtimes/README.md) for the runtime notes index.
+See [`docs/runtimes/README.md`](docs/runtimes/README.md) for live store support, fixture mode, known limitations, and safety guidance.
