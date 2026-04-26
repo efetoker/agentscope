@@ -141,6 +141,8 @@ export async function searchCodexSessions(input: CodexSearchInput): Promise<Code
     const existing = groupedResults.get(session.rootSessionId) ?? {
       runtime: 'codex',
       rootSessionId: session.rootSessionId,
+      projectPath: session.pathHint || session.repoPath,
+      startedAt: session.timestamp,
       matches: [],
     };
 

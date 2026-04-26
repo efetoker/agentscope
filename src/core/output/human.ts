@@ -37,7 +37,11 @@ export function formatSearchResultsHuman(input: SearchResultsEnvelope): string {
   lines.push('Results:');
 
   for (const result of input.results) {
-    lines.push(`[${result.runtime}] root=${result.rootSessionId}`);
+    const metadata = [
+      result.startedAt ? `date=${result.startedAt}` : undefined,
+      result.projectPath ? `path=${result.projectPath}` : undefined,
+    ].filter(Boolean).join(' ');
+    lines.push(`[${result.runtime}] root=${result.rootSessionId}${metadata ? ` ${metadata}` : ''}`);
 
     const visibleMatches = result.matches.slice(0, MAX_VISIBLE_MATCHES);
     const hiddenCount = Math.max(

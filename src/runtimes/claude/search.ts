@@ -116,6 +116,8 @@ export async function searchClaudeSessions(input: ClaudeSearchInput): Promise<Cl
     const existing = groupedResults.get(session.rootSessionId) ?? {
       runtime: 'claude',
       rootSessionId: session.rootSessionId,
+      projectPath: session.pathHint || session.repoPath,
+      startedAt: session.events[0]?.timestamp,
       matches: [],
     };
 

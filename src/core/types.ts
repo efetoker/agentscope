@@ -19,6 +19,8 @@ export interface SearchMatch {
 export interface SearchResultTree {
   runtime: RuntimeId;
   rootSessionId: string;
+  projectPath?: string;
+  startedAt?: string;
   matches: SearchMatch[];
   hiddenMatchCount?: number; // Optional future-facing field for upstream truncation metadata.
 }

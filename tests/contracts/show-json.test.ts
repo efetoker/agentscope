@@ -23,6 +23,9 @@ describe('show JSON contract', () => {
       'resolved_root_session_id',
       'resolution',
       'session_count',
+      'project_path',
+      'started_at',
+      'session_ids',
       'bundle_path',
       'manifest_path',
       'warnings',
@@ -30,6 +33,9 @@ describe('show JSON contract', () => {
     expect(parsed.resolved_runtime).toBe('codex');
     expect(parsed.resolved_root_session_id).toBe('019dab34-c95a-7bf1-a0f7-817dd7bed87d');
     expect(parsed.session_count).toBe(2);
+    expect(parsed.project_path).toBeTruthy();
+    expect(parsed.started_at).toBeTruthy();
+    expect(parsed.session_ids).toEqual(expect.arrayContaining(['child-019dab']));
     expect(parsed.warnings).toEqual([]);
     expect(JSON.stringify(parsed)).not.toContain('raw proxy output body');
   });

@@ -7,7 +7,7 @@ import { resolveCodexFixturesRoot, resolveCodexHome, resolveCodexSessionIndex, r
 import { searchOpenCodeSessions } from '../runtimes/opencode/search.js';
 import { resolveOpenCodeLiveDb } from '../runtimes/opencode/detect.js';
 import type { SearchResultTree } from '../core/types.js';
-import type { AgentscopeWarning } from '../core/warnings.js';
+import { formatWarningHuman, type AgentscopeWarning } from '../core/warnings.js';
 import { detectAllRuntimes } from '../core/runtime/detect.js';
 import { allTargetRuntimesUnavailable, isSupportedRuntime, runtimeFailureInjected, runtimeUnavailableWarning } from '../core/runtime/availability.js';
 
@@ -60,6 +60,22 @@ function jsonError(code: string, message: string): CommandResult {
 
 function isValidDateFilter(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isNaN(Date.parse(value));
+}
+
+function dedupeHumanWarnings(warnings: AgentscopeWarning[]): AgentscopeWarning[] {
+  const seenCodexWarnings = new Set<string>();
+  return warnings.filter((warning) => {
+    if (warning.runtime !== 'codex') {
+      return true;
+    }
+
+    const key = `${warning.code}\0${warning.message}`;
+    if (seenCodexWarnings.has(key)) {
+      return false;
+    }
+    seenCodexWarnings.add(key);
+    return true;
+  });
 }
 
 async function liveReaderUnavailable(command: 'search', json = false): Promise<CommandResult> {
@@ -216,15 +232,17 @@ export async function runSearchCommand(options: SearchCommandOptions): Promise<C
       limit: requestedLimit,
       truncated,
       results: limitedResults,
-      warnings,
+      warnings: options.json ? warnings : [],
     };
+
+    const humanWarnings = options.json ? [] : dedupeHumanWarnings(warnings);
 
     return {
       exitCode: 0,
       stdout: options.json
         ? JSON.stringify(formatSearchResultsJson(envelope), null, 2)
         : formatSearchResultsHuman(envelope),
-      stderr: '',
+      stderr: humanWarnings.map(formatWarningHuman).join('\n'),
     };
   } catch (error) {
     return commandError(error instanceof Error ? error.message : 'search failed');

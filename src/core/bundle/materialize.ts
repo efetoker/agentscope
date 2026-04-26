@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -32,13 +32,25 @@ function sanitizeManifestLocation<T extends { value?: string; status: string }>(
   };
 }
 
-async function materializeBundle(input: MaterializeBundleInput, parentDir: string): Promise<MaterializedBundle> {
+function safeBundleName(input: MaterializeBundleInput): string {
+  return `agentscope-${input.runtime}-${input.resolvedRootSessionId}`.replace(/[^A-Za-z0-9._-]/g, '-');
+}
+
+async function materializeBundle(
+  input: MaterializeBundleInput,
+  parentDir: string,
+  deterministic = false,
+): Promise<MaterializedBundle> {
   for (const file of input.payloadFiles) {
     assertSafeBundleRelativePath(file.relativePath);
   }
 
   await mkdir(parentDir, { recursive: true });
-  const bundlePath = await mkdtemp(path.join(parentDir, `agentscope-${input.runtime}-`));
+  const bundlePath = deterministic ? path.join(parentDir, safeBundleName(input)) : await mkdtemp(path.join(parentDir, `agentscope-${input.runtime}-`));
+  if (deterministic) {
+    await rm(bundlePath, { recursive: true, force: true });
+    await mkdir(bundlePath, { recursive: true });
+  }
   await chmod(bundlePath, 0o700).catch(() => undefined);
 
   const manifest: BundleManifest = {
@@ -79,5 +91,5 @@ export async function materializeBundleInDirectory(
   input: MaterializeBundleInput,
   outputRoot: string,
 ): Promise<MaterializedBundle> {
-  return materializeBundle(input, outputRoot);
+  return materializeBundle(input, outputRoot, true);
 }

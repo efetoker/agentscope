@@ -14,6 +14,8 @@ const baseFixture: SearchResultsEnvelope = {
     {
       runtime: 'claude',
       rootSessionId: 'root-1',
+      projectPath: '/workspace/project',
+      startedAt: '2026-04-26T00:00:00.000Z',
       matches: [
         {
           nodeSessionId: 'root-1',
@@ -44,6 +46,8 @@ describe('human search output', () => {
 
     expect(output).toContain('[claude]');
     expect(output).toContain('root-1');
+    expect(output).toContain('date=2026-04-26T00:00:00.000Z');
+    expect(output).toContain('path=/workspace/project');
     expect(output).toContain('source=message_text');
     expect(output).toContain('repo_root_inferred');
     expect(output).not.toContain('raw payload body');

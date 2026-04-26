@@ -165,6 +165,8 @@ export async function searchOpenCodeSessions(input: OpenCodeSearchInput): Promis
     const existing = grouped.get(session.rootSessionId) ?? {
       runtime: 'opencode',
       rootSessionId: session.rootSessionId,
+      projectPath: session.pathHint || session.repoPath,
+      startedAt: session.createdAt,
       matches: [],
     };
 
